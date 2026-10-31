@@ -18,7 +18,7 @@ onOcrProgress(p => {
 });
 import { EXTRA_KINDS, normalizeProfile, buildPlan, scoreQuestion, answerText, correctText, profileFromAnalysis, mostRepeated, estimateDifficulty, examDocWarning } from './examprofile.js';
 import { getUrl } from './net.js';
-import { BACKUP_PREFS, db, saveDocument, getDocuments, saveAttempt, getAttempts, getSetting, setSetting, requestPersistence, exportAll, importAll, getCards, saveCards, deleteCard, getSessions, saveSession, getPlans, savePlan, deletePlan, getDays, bumpDay, getProfiles, saveProfile, deleteProfile, getTraces, saveTrace, clearTraces, saveBlob, getBlob, deleteBlob } from './storage.js';
+import { BACKUP_PREFS, db, wipeDevice, saveDocument, getDocuments, saveAttempt, getAttempts, getSetting, setSetting, requestPersistence, exportAll, importAll, getCards, saveCards, deleteCard, getSessions, saveSession, getPlans, savePlan, deletePlan, getDays, bumpDay, getProfiles, saveProfile, deleteProfile, getTraces, saveTrace, clearTraces, saveBlob, getBlob, deleteBlob } from './storage.js';
 import { chunkDocs, buildIndex, retrieve, searchTraces, traceFromAttempt, traceFromPractice, makeTrace, updateProfile, emptyProfile, weakTopics as tutorWeak, strongTopics, levelFor as tutorLevel, profileHint, practiceTargets } from './tutor.js';
 import { codePlan, codeTests, codeReview, codeExplain, codeLesson, codeSimulate, interviewProblem, generateExam, gradeWritten, explainSection, explainSelection, askSection, chatDocument, testConnection, describeAI, providerFor, isFreeLimit, setFreeProxy, organiseMap, organiseSize, makeFlashcards, SERVER_PRESETS, fetchModels, generatePlanExam, analysePapers, smartyAnswer, smartyPractice , setIdTokenSource , smartyJson , setEligibilitySource } from './ai.js';
 import { matchSections, flatMap } from './aimap.js';
@@ -259,7 +259,7 @@ function aiConsentOk() {
 }
 function requireAi(what) {
   if (usingServer()) { if (!aiAvailable()) throw Error('Enter your AI server address in Settings.'); if (!aiConsentOk()) throw Error('Online AI was not allowed. You can allow it in Settings › Data and backup.'); return aiConfig(); }   // ECC H1: server modes are gated too
-  if (!state.key.trim()) throw Error(`Add an AI key in Settings to ${what}. Free keys from Google Gemini or Groq work.`);
+  if (!state.key.trim()) throw Error(`Add an AI key in Settings to ${what}. Free keys from supported AI providers work.`);
   if (!navigator.onLine) throw Error('You are offline. This needs an internet connection.');
   if (!aiConsentOk()) throw Error('Online AI was not allowed. You can allow it in Settings › Data and backup.');
   return aiConfig();
@@ -293,7 +293,10 @@ const typeOf = name => ({ pdf: 'pdf', docx: 'docx', pptx: 'pptx' })[extOf(name)]
 const fileTitle = d => String(d?.name || '').replace(/\.(pdf|docx|pptx|txt|md)$/i, '');
 // A document with one top heading (its title) is shown by that title; otherwise by its file name.
 const docTitle = d => { if (!Array.isArray(d?.sections)) return fileTitle(d); const top = outline(d).filter(n => n.parent === 'root'); return top.length === 1 && top[0].title ? top[0].title : fileTitle(d); };
-const unitOf = d => d.mapBy === 'ai' ? 'topic' : ({ pdf: 'page', pptx: 'slide' })[extOf(d.name)] || 'section';
+// 0.9.10: PDFs split by headings count sections, not pages; a one-section document shows "1 section", never 0.
+const byPage = d => (d.sections || []).length > 0 && d.sections.every(s => /^(Page|Slide) \d+/.test(s.ref || ''));
+const unitOf = d => d.mapBy === 'ai' ? 'topic' : byPage(d) ? ({ pdf: 'page', pptx: 'slide' })[extOf(d.name)] || 'section' : 'section';
+const unitCount = d => { const n = chartNodes(outline(d)).length - 1; return n > 0 ? n : (d.sections || []).filter(s => s && s.text).length; };
 const answered = q => state.answers[q.id] !== undefined && String(state.answers[q.id]).trim() !== '';
 const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 const isWide = () => window.innerWidth >= 960;
@@ -395,7 +398,7 @@ let noticeTimer = null, noticeShown = '';
 // Inner scrolling areas keep their place when the screen is redrawn; conversations stay scrolled to the newest message.
 const SCROLLERS = ['#chartwrap', '.thread', '.section-side .ask'];
 function render() {
-  if (state.error && isFreeLimit(state.error)) { state.freeLimit = true; state.error = ''; state.notice = 'You’ve used today’s free Prvlar AI messages. Add your own free Gemini key (takes a minute) to keep going, or come back tomorrow.'; }
+  if (state.error && isFreeLimit(state.error)) { state.freeLimit = true; state.error = ''; state.notice = 'You’ve used today’s free Prvlar AI messages. Add your own free AI key (takes a minute) to keep going, or come back tomorrow.'; }
   const t0 = performance.now();
   const before = SCROLLERS.map(sel => { const el = document.querySelector(sel); return el ? { top: el.scrollTop, left: el.scrollLeft, end: el.scrollHeight - el.scrollTop - el.clientHeight < 40 } : null; });
   app.innerHTML = shellHTML() + onboardingHTML() + timeUpHTML();
@@ -708,7 +711,7 @@ function studyHeader(doc) {
   const total = studyable(doc).length, done = studied(doc), last = state.lastStudied[doc.id];
   return `${backHead(docTitle(doc), docMenu(doc))}
 <header class="doc-head"><span class="ftile-icon">${fileGlyph(typeOf(doc.name))}</span><div class="doc-head-text"><h1 class="title">${esc(docTitle(doc))}</h1>
-<div class="chips"><span class="chip wide-only">${typeLabel(doc)}</span><span class="chip">${plural(chartNodes(outline(doc)).length - 1, unitOf(doc))}</span>${total ? `<span class="chip">${done} of ${total} studied</span>` : ''}${last ? `<span class="chip wide-only">Last studied: ${fmtDay(last)}</span>` : ''}${doc.mapBy === 'ai' ? `<span class="chip ai">${icon('sparkles', 13)}Organised by AI</span>` : ''}</div></div><div class="doc-head-menu">${docMenu(doc)}</div></header>`;
+<div class="chips"><span class="chip wide-only">${typeLabel(doc)}</span><span class="chip">${plural(unitCount(doc), unitOf(doc))}${doc.pages && !byPage(doc) ? ' · ' + plural(doc.pages, 'page') : ''}</span>${total ? `<span class="chip">${done} of ${total} studied</span>` : ''}${last ? `<span class="chip wide-only">Last studied: ${fmtDay(last)}</span>` : ''}${doc.mapBy === 'ai' ? `<span class="chip ai">${icon('sparkles', 13)}Organised by AI</span>` : ''}</div></div><div class="doc-head-menu">${docMenu(doc)}</div></header>`;
 }
 
 function viewStudy(doc) {
@@ -1038,7 +1041,7 @@ ${t.mode === 'custom' ? `<div class="field-row"><label class="field"><span>Hours
 <label class="toggle-row compact"><span><b>Practice mode</b><span>Lets you pause a timed test.</span></span><input type="checkbox" class="switch" id="tm-practice"${t.practice ? ' checked' : ''}></label></section>`;
 }
 const toast = (msg, kind = 'ok') => {
-  if (isFreeLimit(msg)) { state.freeLimit = true; msg = 'You’ve used today’s free Prvlar AI messages. Add your own free Gemini key (takes a minute) to keep going, or come back tomorrow.'; kind = 'warn'; } if (kind === 'error') state.error = msg; else state.notice = msg; render(); };
+  if (isFreeLimit(msg)) { state.freeLimit = true; msg = 'You’ve used today’s free Prvlar AI messages. Add your own free AI key (takes a minute) to keep going, or come back tomorrow.'; kind = 'warn'; } if (kind === 'error') state.error = msg; else state.notice = msg; render(); };
 const saveTiming = () => { state.timing = normalizeTiming(state.timing); writeJSON('prvlar-timing', state.timing); };
 function timerRing() {
   const left = Math.max(0, timeLeft()), frac = examMinutes() ? Math.max(0, Math.min(1, left / (examMinutes() * 60000))) : 1;
@@ -1225,7 +1228,8 @@ ${fallbackHTML()}
 <div class="age-row"><p><b>18+ confirmation</b>: ${isAdult() ? `confirmed${confirmedOn() ? ' on ' + esc(confirmedOn()) : ''} (online features available)` : 'not confirmed (offline features only)'}. Only the confirmation and its date are kept.</p><button class="btn outline sm" data-action="ageRecheck">${icon('info', 16)}${isAdult() ? 'Withdraw' : 'Confirm'}</button></div>
 <label class="toggle-row"><span><b>Online AI allowed</b><span>Turn off to keep everything on this device. Prvlar asks again before AI is used.</span></span><input type="checkbox" data-pref099="ai"${localStorage.getItem('prvlar-ai-consent') === '1' ? ' checked' : ''}><span class="switch${localStorage.getItem('prvlar-ai-consent') === '1' ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 <label class="toggle-row"><span><b>Save crash reports</b><span>Off by default. Errors are kept only on this device, with keys and emails removed. Nothing is sent.</span></span><input type="checkbox" data-pref099="crash"${crashEnabled() ? ' checked' : ''}><span class="switch${crashEnabled() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
-${crashEnabled() ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : ''}</section>
+${crashEnabled() ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : ''}
+<div class="danger-zone"><p class="fine"><b>Delete all data on this device</b>: documents, notes, flashcards, tests, planner, progress, Smarty chats, settings, keys and reports. ${account() ? 'Your Google Drive copy is not touched (use Account › Delete cloud data for that).' : ''}</p><button class="btn ghost danger" data-action="wipeAll">${icon('trash', 18)}Delete all data</button></div></section>
 <section class="card about"><span class="about-logo">${logo()}</span><div><b>Prvlar ${esc(VERSION)}</b><p class="fine">Running on this ${where}. Works on Android 6 or later, iPhone and iPad with iOS 14 or later, Windows, and current browsers.</p><button class="link-btn" data-view="about">${icon('info', 16)}About us and suggestions</button></div></section>
 <section class="card" aria-labelledby="legal-h"><h2 class="h2" id="legal-h">About and legal</h2><div class="row"><button class="btn outline sm" data-view="about">About us</button><button class="btn outline sm" data-view="privacy">Privacy policy</button><button class="btn outline sm" data-view="terms">Terms</button><button class="btn outline sm" data-view="licenses">Licences</button></div></section>
 </div>`;
@@ -2286,16 +2290,16 @@ async function autoReport(err) {
 }
 window.addEventListener('error', e => autoReport(e.error || e.message));
 window.addEventListener('unhandledrejection', e => autoReport(e.reason));
-// No AI yet: recommend the free Gemini key (Groq as a second option). Shown in Smarty and in Settings › AI providers.
+// No AI yet: explain how to get a free key (neutral wording, no product names). Shown in Smarty and in Settings › AI providers.
 function keyHelpHTML() {
   if (aiAvailable() && !state.freeLimit) return '';   // also shown when the free Prvlar AI limit is reached
   const r = state.khRes;
-  return `<section class="card key-help" aria-labelledby="kh-h"><h2 class="h3" id="kh-h">${icon('sparkles', 20)}Get a free AI key</h2><p class="fine">Smarty needs an AI key. Google Gemini’s is free and takes about a minute.</p>
-<a class="btn primary block" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">${icon('share', 18)}Get free Gemini key</a>
+  return `<section class="card key-help" aria-labelledby="kh-h"><h2 class="h3" id="kh-h">${icon('sparkles', 20)}Get a free AI key</h2><p class="fine">Smarty needs an AI key. A free key from a supported AI provider takes about a minute.</p>
+<a class="btn primary block" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">${icon('share', 18)}Get a free key</a>
 <ol class="kh-steps"><li>Sign in with your Google account.</li><li>Tap <b>Create API key</b>.</li><li>Copy the key and paste it here.</li></ol>
-<div class="composer"><input class="input" id="kh-key" type="password" placeholder="Paste your key (AIza… or gsk_…)" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn outline" data-action="khTest"${state.busy ? ' disabled' : ''}>${state.busy === 'kh' ? '<span class="spin"></span>' : icon('checkCircle', 18)}Test key</button></div>
+<div class="composer"><input class="input" id="kh-key" type="password" placeholder="Paste your key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn outline" data-action="khTest"${state.busy ? ' disabled' : ''}>${state.busy === 'kh' ? '<span class="spin"></span>' : icon('checkCircle', 18)}Test key</button></div>
 ${r ? `<p class="status ${r.ok ? 'ok' : 'warn'}" role="status">${esc(r.text)}</p>` : ''}
-<p class="fine">Or use Groq (also free): <a href="https://console.groq.com/keys" target="_blank" rel="noopener">get a Groq key</a> and paste it the same way.</p></section>`;
+<p class="fine">Keys from the other supported providers (Settings › AI providers) work the same way.</p></section>`;
 }
 function viewSmarty() {
   if (!state.smConvs) loadConvs();
@@ -2417,7 +2421,7 @@ function accountHTML() {
   const a = account(), st = syncStatus(), p = syncPrefs(), busy = state.busy === 'sync';
   const head = '<h2 class="h2" id="acct-h">Account and sync</h2>';
   if (!cloudAvailable()) return `<section class="card" aria-labelledby="acct-h">${head}<p class="fine">Prvlar works fully without an account. Everything is saved on this device; use Data and backup to move it.${__PUBLIC__ ? '' : ' Google sync is off in this build (no Google client ID configured).'}</p></section>`;
-  if (!a) return `<section class="card" aria-labelledby="acct-h">${head}<p>Optional: sign in with Google to back up and sync your documents, notes and progress across devices. It is stored only in a hidden app folder in <b>your own</b> Google Drive; we have no server and can't see it.</p><button class="btn outline big block g-btn" data-action="cloudSignIn"${state.busy ? ' disabled' : ''}>${busy ? '<span class="spin"></span>' : icon('login', 20)}Sign in with Google</button><p class="fine">Asks only for your name, email and access to this app's own Drive folder (not your other files).</p></section>`;
+  if (!a) return `<section class="card" aria-labelledby="acct-h">${head}<p>Optional: sign in with Google to back up and sync your documents, notes and progress across devices. It is stored only in a hidden app folder in <b>your own</b> Google Drive. Your synced data never passes through a Prvlar server, and we can't see it. (Only Smarty’s free AI option and AI answer reports use Prvlar’s small relay; see the Privacy policy.)</p><button class="btn outline big block g-btn" data-action="cloudSignIn"${state.busy ? ' disabled' : ''}>${busy ? '<span class="spin"></span>' : icon('login', 20)}Sign in with Google</button><p class="fine">Asks only for your name, email and access to this app's own Drive folder (not your other files).</p></section>`;
   return `<section class="card" aria-labelledby="acct-h">${head}<div class="acct-row">${icon('user', 22)}<div><b>${esc(a.name || a.email)}</b><span class="fine">${esc(a.email)}</span></div></div>
 <p class="sync-line">${st.error ? `${icon('cloudOff', 16)} <span class="bad">${esc(st.error)}</span>` : st.at ? `${icon('cloud', 16)} Last synced ${new Date(st.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${fmtBytes(st.size)} in your Drive${st.conflicts ? ` · ${st.conflicts} conflict${st.conflicts === 1 ? '' : 's'} resolved (newest kept)` : ''}` : `${icon('cloud', 16)} Not synced yet`}</p>
 ${st.reason === 'scope' ? `<div class="code-acts"><button class="btn primary" data-action="cloudGrant"${state.busy ? ' disabled' : ''}>${icon('cloud', 18)}Allow Drive access</button></div><p class="fine">On Google's screen, tick the box that lets Prvlar see and manage its own app data in your Drive.</p>` : ''}<div class="code-acts"><button class="btn primary" data-action="cloudSync"${state.busy ? ' disabled' : ''}>${busy ? '<span class="spin"></span>' : icon('refresh', 18)}Sync now</button><button class="btn outline" data-action="cloudSignOut">${icon('logout', 18)}Sign out</button></div>
@@ -2622,6 +2626,11 @@ const actions = {
   async devAddRole() { if (!state.owner) return toast('Only the owner can manage roles.', 'warn'); const v = document.getElementById('dev-role-email')?.value || '', r = document.getElementById('dev-role')?.value; try { await addRole(v, r); toast(`${ROLES[r]} added (stored as a hash).`, 'ok'); } catch (e) { toast(e.message, 'warn'); } render(); },
   async devCopyRoles() { if (!state.owner) return; const t = JSON.stringify(roleList(), null, 1); try { await navigator.clipboard.writeText(t); toast('roles.json copied.', 'ok'); } catch { prompt('Copy roles.json', t); } },
   async devAddOwner() { if (!state.owner) return toast('Only the owner can manage owners.', 'warn'); const v = document.getElementById('dev-owner')?.value || ''; try { await addOwner(v); toast('Owner added (stored as a hash).', 'ok'); } catch (e) { toast(e.message, 'warn'); } render(); },
+  async wipeAll() {
+    if (!confirm('Delete ALL Prvlar data on this device (documents, notes, flashcards, tests, planner, progress, chats, settings, keys and reports)? This cannot be undone. Make a backup first if you want to keep anything.')) return;
+    if (!confirm('Are you sure? Everything on this device will be deleted.')) return;
+    await wipeDevice(); location.hash = ''; location.reload();
+  },
   cloudDelete: () => { if (!confirm('Delete everything Prvlar stored in your Google Drive, turn off sync and sign out (Google access is revoked)? Your study data on this device is kept; AI answer reports and crash logs on this device are deleted.')) return; cloudDo(async () => { const n = await deleteCloudData(); deleteAllReports(); setCrashEnabled(false); localStorage.removeItem('prvlar-report-log'); await refreshOwner().catch(() => {}); toast(`Deleted ${n} file${n === 1 ? '' : 's'} from your Drive. Sync is off and you are signed out.`, 'ok'); }); },
   cloudPass() { const v = prompt('Sync passphrase (at least 8 characters). Use the same one on every device.'); if (v == null) return; if (v.length < 8) return toast('Use at least 8 characters.', 'warn'); setPassphrase(v); render(); },
   musicPlay() { musicPlay(); }, musicPause() { musicPause(); },

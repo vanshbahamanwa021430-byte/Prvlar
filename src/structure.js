@@ -29,8 +29,19 @@ export function splitSections(text, { maxPart = 1800 } = {}) {
   const out = [];
   let cur = null, headings = 0;
   const open = (title, level) => { cur = { ref: uniqueRef(title, seen), title: title.slice(0, 75), level, text: '' }; out.push(cur); };
-  for (const line of lines) {
-    const h = headingOf(line, markdownOnly);
+  // 0.9.10: a short title-like line on its own (blank line before it or start of file, and a blank line or a longer
+  // sentence after it) is a heading too, e.g. "Newton laws" at the top of a plain-text note.
+  const titleLike = t => t.length >= 2 && t.length <= 60 && t.split(/\s+/).length <= 8 && /^\p{Lu}/u.test(t) && !/[.,;:!?…]$/.test(t) && !/^[-*•]/.test(t);
+  const plainHead = i => {
+    if (markdownOnly) return null;
+    const t = lines[i].trim(); if (!titleLike(t)) return null;
+    const prev = i === 0 ? '' : lines[i - 1].trim(); if (prev) return null;
+    const next = (lines[i + 1] || '').trim(), after = lines.slice(i + 1).map(x => x.trim()).find(Boolean) || '';
+    if (!after) return null;
+    return !next || (next.length >= Math.max(30, t.length * 2) && /[.!?]$/.test(next)) ? { level: 1, title: t } : null;
+  };
+  for (const [i, line] of lines.entries()) {
+    const h = headingOf(line, markdownOnly) || plainHead(i);
     if (h) { headings++; open(h.title, h.level); continue; }
     const t = line.trim();
     if (!t) { if (cur && cur.text && !cur.text.endsWith('\n\n')) cur.text += '\n'; continue; }
@@ -44,7 +55,7 @@ export function splitSections(text, { maxPart = 1800 } = {}) {
     for (const l of lines.map(x => x.trim()).filter(Boolean)) { buf.push(l); size += l.length; if (size >= maxPart) flush(); }
     flush();
     const s2 = new Map();
-    return parts.map((p, i) => ({ ref: uniqueRef('Part ' + (i + 1), s2), title: `Part ${i + 1}: ${p.split(/\s+/).slice(0, 6).join(' ')}`.slice(0, 75), level: 1, text: p }));
+    return parts.map((p, i) => ({ ref: uniqueRef('Part ' + (i + 1), s2), title: `Part ${i + 1}: ${(p.split('\n')[0] || '').trim().slice(0, 60)}`.slice(0, 75), level: 1, text: p }));
   }
   return out.map(s => ({ ...s, text: s.text.trim() }));
 }

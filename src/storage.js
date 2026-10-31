@@ -184,3 +184,10 @@ export async function importAll(data) {
   if (data.prefs && typeof data.prefs === 'object') data.prefs = normalizePrefs(data.prefs, BACKUP_PREFS);
   if (data.prefs && typeof data.prefs === 'object') for (const k of BACKUP_PREFS) if (k in data.prefs) localStorage.setItem(k, JSON.stringify(data.prefs[k]));
 }
+
+// 0.9.10: Settings › Data › "Delete all data" (works signed out). Empties every table and the app's local storage.
+export async function wipeDevice(store = globalThis.localStorage, session = globalThis.sessionStorage) {
+  await Promise.all(db.tables.map(t => t.clear()));
+  try { store?.clear(); } catch { /* blocked */ }
+  try { session?.clear(); } catch { /* blocked */ }
+}

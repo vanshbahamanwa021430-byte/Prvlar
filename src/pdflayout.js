@@ -52,3 +52,23 @@ export function layoutText(items, pageWidth) {
   const head = spans.filter(i => i.y < top + 1);
   return [head.length && render(toLines(head)), render(toLines(left)), render(toLines(right)), render(toLines(spans.filter(i => !head.includes(i))))].filter(Boolean).join('\n\n');
 }
+
+// 0.9.10: split a PDF by its headings (larger text than the body), not by page. pages = [{ n, lines: [{ text, size }] }].
+// Returns null when the document has fewer than two heading lines (then the per-page sections are kept).
+export function pdfHeadingSections(pages) {
+  const all = pages.flatMap(p => p.lines.map(l => ({ ...l, page: p.n, text: String(l.text || '').replace(/\s+/g, ' ').trim() }))).filter(l => l.text);
+  if (!all.length) return null;
+  const w = new Map(); for (const l of all) { const k = Math.round(l.size || 0); w.set(k, (w.get(k) || 0) + l.text.length); }
+  const body = [...w.entries()].sort((a, b) => b[1] - a[1])[0][0] || 0; if (!body) return null;
+  const isHead = l => l.size >= body * 1.15 && l.text.length >= 2 && l.text.length <= 90 && !/[.,;:!?]$/.test(l.text) && l.text.split(' ').length <= 14 && /\p{L}/u.test(l.text);
+  const heads = all.filter(isHead); if (heads.length < 2) return null;
+  const sizes = [...new Set(heads.map(h => Math.round(h.size)))].sort((a, b) => b - a);
+  const seen = new Map(), uniq = t => { const b = t.slice(0, 75), n = (seen.get(b) || 0) + 1; seen.set(b, n); return n === 1 ? b : `${b} (${n})`; };
+  const out = []; let cur = null;
+  for (const l of all) {
+    if (isHead(l)) { cur = { ref: uniq(l.text), title: l.text.slice(0, 75), level: Math.min(3, sizes.indexOf(Math.round(l.size)) + 1), text: '', page: l.page }; out.push(cur); continue; }
+    if (!cur) { cur = { ref: uniq('Introduction'), title: 'Introduction', level: 1, text: '', page: l.page }; out.push(cur); }
+    cur.text += l.text + '\n';
+  }
+  return out.map(s => ({ ...s, text: s.text.trim() }));
+}

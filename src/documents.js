@@ -1,9 +1,7 @@
-import mammoth from 'mammoth';
-import JSZip from 'jszip';
 import { splitSections, outline, sourceContext, contextInfo, verifySources } from './structure.js';
 import { uuid } from './platform.js';
 import { needsOcr, ocrPdf, ocrImage } from './ocr.js';
-import { layoutText } from './pdflayout.js';
+import { layoutText, pdfHeadingSections } from './pdflayout.js';
 import { toLines, questionRegions } from './figures.js';
 
 const OCR_FAIL = 'No readable text was found, even after scanning the pages for text (OCR). Try a clearer scan or photo.';
@@ -92,22 +90,25 @@ export async function pdfText(bytes, opts = {}) {
 
 export async function parseFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  let sections = [], pdfBytes = null; const figPages = [];
+  let sections = [], pdfBytes = null, pages = 0; const figPages = [];
   if (ext === 'txt' || ext === 'md') {
     sections = splitSections(await file.text());
   } else if (ext === 'docx') {
+    const mammoth = (await import('mammoth')).default;   // perf: loaded on first DOCX import
     const { value } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
     sections = splitSections(htmlToMarkedText(value));
   } else if (ext === 'pdf') {
     const pdfjs = await loadPdfjs();
     pdfBytes = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjs.getDocument({ data: pdfBytes.slice(), disableFontFace: true, useSystemFonts: true, isEvalSupported: false }).promise;
+    const pageLines = []; pages = pdf.numPages;
     for (let i = 1; i <= pdf.numPages; i++) {
       const pg = await pdf.getPage(i), c = await pg.getTextContent();
       if (i <= 80) try { if (await pageHasFigure(pdfjs, pg)) figPages.push(i); } catch { /* ignore */ }
       let text = c.items.map(x => x.str + (x.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+\n/g, '\n').trim();
       try { const vp = pg.getViewport({ scale: 1 }); const lt = layoutText(c.items.map(t => ({ str: t.str, x: t.transform[4], y: vp.height - t.transform[5], w: t.width || 0, h: t.height || 10 })), vp.width); if (lt.trim()) text = lt; } catch { /* plain text order */ }
       sections.push({ ref: 'Page ' + i, title: firstLine(text).slice(0, 75) || 'Page ' + i, level: 1, text });
+      { const lines = []; let cur = { text: '', size: 0 }; for (const it of c.items) { cur.text += it.str; if (it.str.trim()) cur.size = Math.max(cur.size, Math.abs(it.height || it.transform?.[3] || 0)); if (it.hasEOL) { lines.push(cur); cur = { text: '', size: 0 }; } } if (cur.text.trim()) lines.push(cur); pageLines.push({ n: i, lines }); }
     }
     if (needsOcr(sections.map(s => s.text).join(''), pdf.numPages)) {
       try {
@@ -115,8 +116,10 @@ export async function parseFile(file) {
         sections = texts.map((text, j) => ({ ref: 'Page ' + (j + 1), title: firstLine(text).slice(0, 75) || 'Page ' + (j + 1), level: 1, text, ocr: true }));
       } catch (e) { await pdf.destroy(); throw Error(/cancel/i.test(e.message) ? 'Scanning stopped. The document was not imported.' : OCR_FAIL); }
     }
+    if (!sections.some(s => s.ocr)) { const hs = pdfHeadingSections(pageLines); if (hs && hs.some(s => s.text)) sections = hs; }   // 0.9.10: split by headings
     await pdf.destroy();
   } else if (ext === 'pptx') {
+    const JSZip = (await import('jszip')).default;   // perf: loaded on first PPTX import
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     const num = p => Number(p.match(/slide(\d+)\.xml$/)[1]);
     const files = Object.keys(zip.files).filter(x => /^ppt\/slides\/slide\d+\.xml$/.test(x)).sort((a, b) => num(a) - num(b));
@@ -135,6 +138,7 @@ export async function parseFile(file) {
   if (!sections.some(s => s.text)) throw Error(OCR_FAIL);
   if (ext === 'pdf' || ext === 'pptx') sections = sections.filter(s => s.text);
   const doc = { id: uuid(), name: file.name, created: Date.now(), sections };
+  if (pages) doc.pages = pages;
   if (pdfBytes) { doc.figPages = figPages; Object.defineProperty(doc, 'bytes', { value: pdfBytes, enumerable: false }); }
   return doc;
 }

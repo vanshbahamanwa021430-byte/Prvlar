@@ -1,0 +1,7 @@
+Newton laws
+
+First law: an object stays at rest or in uniform motion unless acted on by a net force.
+
+Second law: F = m a.
+
+Third law: every action has an equal and opposite reaction.
