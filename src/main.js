@@ -296,7 +296,7 @@ const docTitle = d => { if (!Array.isArray(d?.sections)) return fileTitle(d); co
 // 0.9.10: PDFs split by headings count sections, not pages; a one-section document shows "1 section", never 0.
 const byPage = d => (d.sections || []).length > 0 && d.sections.every(s => /^(Page|Slide) \d+/.test(s.ref || ''));
 const unitOf = d => d.mapBy === 'ai' ? 'topic' : byPage(d) ? ({ pdf: 'page', pptx: 'slide' })[extOf(d.name)] || 'section' : 'section';
-const unitCount = d => { const n = chartNodes(outline(d)).length - 1; return n > 0 ? n : (d.sections || []).filter(s => s && s.text).length; };
+const unitCount = d => (d.sections || []).filter(s => s && s.text).length;
 const answered = q => state.answers[q.id] !== undefined && String(state.answers[q.id]).trim() !== '';
 const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 const isWide = () => window.innerWidth >= 960;
