@@ -24,4 +24,4 @@ export function setStatus(id, status, by, store = localStorage) {
   r.audit.push({ at: new Date().toISOString(), by: String(by || 'unknown'), action: `status ${r.status} → ${status}` }); r.status = status; save(store, l); return r;
 }
 export const exportReports = (store = localStorage) => JSON.stringify({ format: 'prvlar-ai-reports-1', exported: new Date().toISOString(), reports: load(store) }, null, 1);
-export function deleteAllReports(store = localStorage) { store.removeItem(KEY); }
+export function deleteAllReports(store = localStorage) { store.removeItem(KEY); store.removeItem('prvlar-report-queue'); store.removeItem('prvlar-report-sent'); }

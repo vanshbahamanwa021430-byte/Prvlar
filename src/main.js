@@ -54,6 +54,7 @@ music.keepPlaying = () => state.focusRun.running && state.focusRun.phase === 'fo
 onMusicChange(() => { if (state.view === 'focus') render(); });
 import { speak, stopSpeaking, speechSupported } from './speech.js';
 import { drawerHTML, edgeSwipe } from './drawer.js';
+import { enqueue as repEnqueue, startRetry as repStartRetry, fetchOwnerReports, wasSent as repWasSent } from './reportsync.js';
 import { confirmAdult, clearAdult, ageStatus, isAdult, confirmedOn } from './age.js';
 import { aiDecision } from './aigate.js';
 import { CATEGORIES as REP_CATS, STATUSES as REP_STATUS, makeReport, addReport, listReports, setStatus as setRepStatus, exportReports, deleteAllReports } from './aireport.js';
@@ -70,7 +71,7 @@ import { weeklyReport, nextWeeklyAt } from './weekly.js';
 import { recognitionSupported, recordingSupported, listen as voiceListen, record as voiceRecord } from './voice.js';
 import { readAttachment, attachmentBlock, MAX_FILES } from './attach.js';
 import { SKILLS_KEY, normalizeSkill, upsertSkill, removeSkill, parseSlash, suggestSkill, skillPrompt } from './skills.js';
-import { draftSkill, webSearchAnswer } from './ai.js';
+import { draftSkill, webSearchAnswer, proxyAction } from './ai.js';
 import JSZip from 'jszip';
 import { buildReport, allowReport, issueUrl, mailtoUrl, postReport, reportText, parseCsv } from './report.js';
 
@@ -85,6 +86,7 @@ if (LITE) document.documentElement.classList.add('lite');
 
 /* global __APP_VERSION__ */
 const VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
+const BUILD_ID = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev';   // git commit the build was made from (release approval)
 const app = document.querySelector('#app');
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ACCEPT_BY = {
@@ -232,7 +234,7 @@ function ageModalHTML() {
   return `<div class="sheet-backdrop" data-action="ageCancel"></div><section class="sheet age-sheet" role="dialog" aria-modal="true" aria-labelledby="age-h"><h2 class="h2" id="age-h">${icon('info', 20)}Confirm your age</h2>
 <p>Online AI, Google sign-in and cloud features and problem reports are for users aged 18 or over. Everything else works offline without this.</p>
 <label class="radio-row age-ok"><input type="checkbox" id="age-ok"> I'm 18 or older</label>
-<p class="fine">Prvlar stores only that you confirmed and the date.</p>
+${state.ageAsk.err ? `<p class="fine age-err" role="alert">${esc(state.ageAsk.err)}</p>` : ''}<p class="fine">Prvlar stores only that you confirmed and the date.</p>
 <div class="row"><button class="btn primary" data-action="ageConfirm">${icon('check', 18)}Confirm</button><button class="btn outline" data-action="ageCancel">Cancel</button></div>
 <p class="fine">This is a self-declaration. It is not parental consent.</p></section>`;
 }
@@ -2348,7 +2350,7 @@ const ownerBadge = () => state.owner ? `<span class="chip owner-badge" title="Ow
   : state.role === 'codev' ? `<span class="chip owner-badge role-codev" title="Co-developer: Developer panel unlocked">${icon('code', 13)} Co-dev</span>`
   : state.role === 'friend' ? `<span class="chip owner-badge role-tester" title="Complimentary Pro">${icon('flask', 13)} Pro</span>`
   : state.role === 'tester' ? `<span class="chip owner-badge role-tester" title="Beta tester: early features unlocked">${icon('flask', 13)} Tester</span>` : '';
-const DEV_TABS = [['pack', 'Owner pack'], ['errors', 'Errors'], ['info', 'Build'], ['logs', 'Logs'], ['ai', 'AI requests'], ['db', 'Database'], ['flags', 'Flags'], ['data', 'Test data'], ['crash', 'Crashes'], ['reports', 'AI reports'], ['owners', 'Owners'], ['access', 'Access']];
+const DEV_TABS = [['pack', 'Owner pack'], ['errors', 'Errors'], ['info', 'Build'], ['logs', 'Logs'], ['ai', 'AI requests'], ['db', 'Database'], ['flags', 'Flags'], ['data', 'Test data'], ['crash', 'Crashes'], ['reports', 'AI reports'], ['owners', 'Owners'], ['access', 'Access'], ['release', 'Release approval']];
 function viewBeta() {
   if (!canDo('beta')) return `${backHead('Beta features')}<div class="view narrow"><section class="card"><p>Beta features are for beta testers. Sign in with a tester Google account.</p></section></div>`;
   return `${backHead('Beta features', ownerBadge())}<div class="view narrow beta-view"><section class="card"><h2 class="h2">${icon('flask', 18)} Early features</h2><p class="fine">These may change or break. Turn one on, try it, and tell us how it went.</p>
@@ -2373,7 +2375,10 @@ function viewDev() {
 <h3 class="h3">Reports in your Sheet</h3>${REPORT_CSV ? (e.sheetErr ? `<p class="status warn">${esc(e.sheetErr)}</p>` : e.sheet ? (e.sheet.length ? `<ul class="dev-errs">${e.sheet.slice(-50).reverse().map(r => `<li><details><summary>${esc(r.at || r.Timestamp || '')} · <b>${esc(r.kind || '')}</b> ${esc((r.message || r.text || '').slice(0, 90))}</summary>${pre(JSON.stringify(r, null, 1))}</details></li>`).join('')}</ul>` : '<p class="muted">No reports yet.</p>') : '<p class="muted">Tap Refresh.</p>') : '<p class="fine">Add the Sheet’s published CSV link to the owner pack (reports.csv) to see automatic reports here. See docs/error-reports.md.</p>'}
 <h3 class="h3">GitHub issues (user-report)</h3>${!reportRepo() ? '<p class="fine">No repository configured.</p>' : e.ghErr ? `<p class="status warn">${esc(e.ghErr)}</p>` : e.gh ? (e.gh.length ? `<ul class="dev-errs">${e.gh.map(i => `<li><a href="${esc(i.html_url)}" target="_blank" rel="noopener">#${i.number} ${esc(i.title)}</a> <span class="fine">${esc(i.state)} · ${new Date(i.created_at).toLocaleDateString()}</span></li>`).join('')}</ul>` : '<p class="muted">No issues.</p>') : '<p class="muted">Tap Refresh.</p>'}
 <h3 class="h3">This device</h3>${c.length ? c.slice().reverse().slice(0, 15).map(x => `<details><summary>${new Date(x.at).toLocaleString()} · ${esc(x.msg.slice(0, 80))}</summary>${pre(x.stack || x.msg)}</details>`).join('') : '<p class="muted">No errors on this device.</p>'}`; }
-  else if (tab === 'reports') { const l = listReports().slice().reverse(); body = `<div class="row"><button class="btn outline sm" data-action="devRepExport">${icon('download', 16)}Export</button><span class="fine">${plural(l.length, 'report')} on this device</span></div>${l.length ? l.map(r => `<details class="airep"><summary><span class="chip st-${r.status}">${esc(r.status)}</span> ${esc(r.category)} · ${esc(r.kind)} · ${esc(fmtDateTime(r.at))}</summary><p><b>Answer:</b> ${esc(r.answer.slice(0, 600))}</p>${r.context ? `<p class="fine"><b>Context:</b> ${esc(r.context)}</p>` : ''}${r.note ? `<p><b>Note:</b> ${esc(r.note)}</p>` : ''}<div class="row">${REP_STATUS.map(st => `<button class="btn ${st === r.status ? 'primary' : 'outline'} sm" data-devrep="${esc(r.id)}:${st}"${st === r.status ? ' aria-pressed="true"' : ''}>${st}</button>`).join('')}</div><ol class="fine audit">${r.audit.map(x => `<li>${esc(fmtDateTime(x.at))}: ${esc(x.by)} — ${esc(x.action)}</li>`).join('')}</ol></details>`).join('') : '<p class="muted">No AI answers have been reported.</p>'}`; }
+  else if (tab === 'release') { const a = state.relApproved; body = `<section class="card rel-approve"><h3 class="h3">${icon('checkCircle', 18)}Release approval</h3><p>Installed build: <b>Prvlar ${esc(VERSION)}</b> · build <code>${esc(BUILD_ID)}</code></p>
+<p class="fine">Test this build, then approve it. The release is published to everyone only after an owner approval exists for this exact version and build.</p>
+${a && a.version === VERSION && a.buildId === BUILD_ID ? `<p class="ok-note">${icon('check', 16)} Approved ${esc(fmtDateTime(a.at))}.</p>` : ''}<button class="btn primary" data-action="relApprove"${state.owner && BUILD_ID !== 'dev' ? '' : ' disabled'}>${icon('checkCircle', 17)}Confirm and approve release</button></section>`; }
+  else if (tab === 'reports') { const l = listReports().slice().reverse(); body = `<div class="row"><button class="btn outline sm" data-action="devRepExport">${icon('download', 16)}Export</button><span class="fine">${plural(l.length, 'report')} on this device</span>${state.owner ? `<button class="btn primary sm" data-action="devRepFetch">${icon('download', 16)}Load all reports (server)</button>` : ''}</div>${state.serverReports ? `<h3 class="h3">All reports from users (${state.serverReports.length})</h3><ul class="sm-list srv-reports">${state.serverReports.slice().reverse().map(r => `<li><b>${esc(r.category)}</b> · ${esc(r.kind || '')} · v${esc(r.version || '')} · ${esc(fmtDateTime(r.at))}<br><span class="fine">${esc(String(r.answer || '').slice(0, 300))}</span>${r.question ? `<br><span class="fine"><b>Question:</b> ${esc(r.question)}</span>` : ''}${r.note ? `<br><b>Note:</b> ${esc(r.note)}` : ''}</li>`).join('') || '<li class="muted">No reports on the server yet.</li>'}</ul>` : ''}${l.length ? l.map(r => `<details class="airep"><summary><span class="chip st-${r.status}">${esc(r.status)}</span> ${esc(r.category)} · ${esc(r.kind)} · ${esc(fmtDateTime(r.at))}${repWasSent(r.id) ? ' · sent' : ''}</summary><p><b>Answer:</b> ${esc(r.answer.slice(0, 600))}</p>${r.context ? `<p class="fine"><b>Context:</b> ${esc(r.context)}</p>` : ''}${r.note ? `<p><b>Note:</b> ${esc(r.note)}</p>` : ''}<div class="row">${REP_STATUS.map(st => `<button class="btn ${st === r.status ? 'primary' : 'outline'} sm" data-devrep="${esc(r.id)}:${st}"${st === r.status ? ' aria-pressed="true"' : ''}>${st}</button>`).join('')}</div><ol class="fine audit">${r.audit.map(x => `<li>${esc(fmtDateTime(x.at))}: ${esc(x.by)} — ${esc(x.action)}</li>`).join('')}</ol></details>`).join('') : '<p class="muted">No AI answers have been reported.</p>'}`; }
   else if (tab === 'crash') { const c = crashes(); body = `<button class="btn outline sm" data-action="devClearCrashes">Clear</button>${c.length ? c.slice().reverse().map(x => `<details><summary>${new Date(x.at).toLocaleString()} · ${esc(x.msg.slice(0, 80))}</summary>${pre(x.stack || x.msg)}</details>`).join('') : '<p class="muted">No crashes recorded.</p>'}`; }
   else if (tab === 'pack') body = ownerPackHTML();
   else if (tab === 'access') { const list = roleList();
@@ -2532,14 +2537,24 @@ async function mountCodeEditor() {
 }
 
 const actions = {
-  ageConfirm() { if (!document.getElementById('age-ok')?.checked) throw Error('Tick “I\'m 18 or older” to continue, or use the offline features.'); confirmAdult(); state.ageAsk = null; state.notice = 'Thanks. Online features are available.'; render(); },
+  ageConfirm() { if (!document.getElementById('age-ok')?.checked) { state.ageAsk.err = 'Tick “I’m 18 or older” to continue, or keep using the offline features.'; render(); return; } confirmAdult(); state.ageAsk = null; state.notice = 'Thanks. Online features are available.'; render(); },
   ageCancel() { state.ageAsk = null; render(); },
   ageRecheck() { if (isAdult()) { clearAdult(); state.notice = 'Confirmation withdrawn. Online features are off until you confirm again.'; render(); return; } state.ageAsk = { what: 'use online features' }; render(); },
   aiRepCancel() { state.aiRep = null; render(); },
   aiRepSend() {
     const cat = document.querySelector('input[name=airep-cat]:checked')?.value, note = document.getElementById('airep-note')?.value || '';
-    addReport(makeReport({ category: cat, note, ...state.aiRep, version: VERSION })); state.aiRep = null; state.notice = 'Thanks. The answer was reported.'; render();
+    const rep = addReport(makeReport({ category: cat, note, ...state.aiRep, version: VERSION })); state.aiRep = null; repEnqueue(rep.id);
+    state.notice = 'Sending your report…'; render();
+    repRetry().then(r => { state.notice = r.left ? 'Report saved. It will be sent when you are back online.' : 'Report sent. Thank you.'; render(); }).catch(() => {});
   },
+  async relApprove() {
+    if (!state.owner) throw Error('Only the owner can approve a release.');
+    if (!confirm(`Approve Prvlar ${VERSION} (build ${BUILD_ID}) for release to everyone?`)) return;
+    const at = new Date().toISOString(); const r = await repSend('approveRelease', { version: VERSION, buildId: BUILD_ID, timestamp: at }, true);
+    if (r.status !== 200) throw Error(r.body?.error?.message || 'Approval was not recorded (' + r.status + '). Check that you are signed in.');
+    state.relApproved = { version: VERSION, buildId: BUILD_ID, at }; toast('Release approved', 'ok'); render();
+  },
+  async devRepFetch() { if (!state.owner) throw Error('Only the owner can load all reports.'); state.busy = 'Loading reports'; render(); try { state.serverReports = await fetchOwnerReports(repSend); } finally { state.busy = ''; } render(); },
   devRepExport() { return saveTextFile('prvlar-ai-reports-' + today() + '.json', exportReports()); },
   async findPrereqs() {
     const doc = curDoc(); if (!doc) return; const ai = requireAi('find prerequisites'); if (!ai) return;
@@ -3287,6 +3302,9 @@ const ownerPack = ownerPackController({
 let booted = false;
 async function syncOwnerPack(opts) { const a = account(); const r = await ownerPack.sync(a?.email || '', opts).catch(e => ({ ok: false, error: e.message })); state.packStatus = ownerPack.status(); render(); return r; }
 setIdTokenSource(getIdToken); setEligibilitySource(() => isAdult());
+const repSend = (a, d, tok) => proxyAction(a, 'device-' + deviceId(), d, { withToken: !!tok });
+const repRetry = repStartRetry(repSend);
+setTimeout(() => repRetry().catch(() => {}), 5000);   // anything queued while offline
 const ownerReady = account() ? (startAutoSync(), refreshOwner().catch(() => {})) : Promise.resolve();
 onSyncStatus(st => { if (st.changed) reloadAll().catch(() => {}); else if (state.view === 'settings' && !state.busy) render(); });
 setInterval(updateTimer, 1000);

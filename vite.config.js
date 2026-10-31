@@ -3,6 +3,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
+import { execSync } from 'node:child_process';
+const BUILD_ID = process.env.PRVLAR_BUILD_ID || (() => { try { return execSync('git rev-parse --short=12 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return 'dev'; } })();
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 // Lists every file in public/ (icons, manifest, compat.js) for the offline cache.
@@ -138,7 +140,7 @@ if(repo)fetch('https://api.github.com/repos/'+repo+'/releases/latest').then(func
 export default defineConfig({
   // Relative asset URLs: required for Capacitor, the Electron app:// loader and hosting in a sub-folder.
   base: './',
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __PUBLIC__: 'true', __EDITION__: JSON.stringify('app') },
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_ID__: JSON.stringify(BUILD_ID), __PUBLIC__: 'true', __EDITION__: JSON.stringify('app') },
   build: {
     outDir: process.env.ATLAS_OUT || 'dist',
     // 2019-era engines (Android WebView 73+, iOS 13+ Safari) so older phones and tablets still run the app.

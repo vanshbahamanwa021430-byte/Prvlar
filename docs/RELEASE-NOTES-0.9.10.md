@@ -13,3 +13,7 @@
 - Automated: unit + lint, full browser suite, Smarty action tests, secret scan.
 - Real-device Android install: **NOT YET RUN**.
 - Windows install: **NOT YET RUN**.
+
+## Reports and release approval
+- "Report AI answer" now reaches the developer: a cleaned-up report (no email, no whole documents) is sent, with a "Report sent" confirmation; offline reports are queued and retried. A copy stays on your device.
+- Owner: Developer panel › Release approval shows the installed version and build and records the owner's approval. New versions become the latest release only after that approval.

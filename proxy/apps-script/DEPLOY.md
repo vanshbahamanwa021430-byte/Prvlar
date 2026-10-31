@@ -22,3 +22,12 @@ Updating the code later: edit, save, then **Deploy › Manage deployments** › 
 
 Limits: 30 messages per device per day, 1,000 per day overall (edit DEVICE_LIMIT / GLOBAL_LIMIT at the top). Apps Script consumer quotas: 20,000 URL fetches/day, 6 min per call; Gemini free-tier limits also apply.
 To switch it off: Deploy › Manage deployments › Archive, or delete GEMINI_KEY in Script Properties.
+
+## 0.9.10 update: AI answer reports and release approvals
+1. Open the existing Apps Script project and replace **all** of `Code.gs` with the new file (`proxy/apps-script/Code.gs`, same as `/workspace/out/proxy/Code.gs`). Save.
+2. Script properties (Project Settings › Script properties): keep `GEMINI_KEY`, `APP_TOKEN`, `ALLOWED_AUD`. Optional: `OWNER_EMAILS` (comma-separated; default `vanshbahamanwa021430@gmail.com`). `REPORT_SHEET_ID` is created automatically on the first report. Owner-only actions (listReports, approveRelease) need `ALLOWED_AUD` set to the web OAuth client id(s).
+3. Authorise the new permissions once: in the editor pick the function `setup` and press Run, then accept the Google Sheets and "send email as you" (MailApp) scopes.
+4. Deploy › Manage deployments › edit the existing web app deployment › Version: **New version** › Deploy. Keep the same deployment so the /exec URL does not change (Execute as: Me, Who has access: Anyone).
+5. Check: open `<exec URL>?action=approval&version=0.0.0&build=0000000` → `{"status":200,"body":{"approved":false,...}}`.
+
+New actions: `report` (POST, 18+ flag, 10/device/day, 200/day, ≤50 emails/day), `listReports` (POST, owner ID token), `approveRelease` (POST, owner ID token), `approval` (GET, public read of version/build/time only).

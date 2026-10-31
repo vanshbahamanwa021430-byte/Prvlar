@@ -6,6 +6,9 @@
  * One-time setup (see DEPLOY.md):
  *   1. Paste the Gemini key between the quotes in SETUP_GEMINI_KEY, run setup(), then clear it again and save.
  *   2. Read APP_TOKEN in Project Settings › Script properties and put it in the app's config (it is public; it only filters casual misuse).
+ *   4. 0.9.10 reports + release approvals: set OWNER_EMAILS (default vanshbahamanwa021430@gmail.com). A Google Sheet is
+ *      created on first use (id kept in REPORT_SHEET_ID). Needs ALLOWED_AUD for owner-only actions. Redeploy after authorising
+ *      the new Spreadsheet and Mail permissions.
  *   3. Optional: set ALLOWED_AUD (comma-separated OAuth client IDs) so requests carrying a Google ID token are limited per account.
  */
 var SETUP_GEMINI_KEY = '';            // paste ONLY for the one setup() run, then delete and save
@@ -80,18 +83,95 @@ function verifiedUser_(idToken) {
   } catch (x) { return ''; }
 }
 
-function doGet() { return out_(200, { ok: true, service: 'prvlar-free-ai', configured: !!PropertiesService.getScriptProperties().getProperty('GEMINI_KEY') }); }
+/* ---------- 0.9.10: AI answer reports and release approvals ---------- */
+var OWNER_DEFAULT = 'vanshbahamanwa021430@gmail.com';
+var REPORT_DEVICE_DAY = 10, REPORT_GLOBAL_DAY = 200, REPORT_MAIL_DAY = 50;
+var CATS = { inaccurate: 1, harmful: 1, inappropriate: 1, 'privacy': 1 };
+function clean_(t, n) {
+  return String(t == null ? '' : t).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z]{10,}|sk-[A-Za-z0-9_-]{10,}|GOCSPX-[0-9A-Za-z_-]+|ya29\.[0-9A-Za-z_.-]+|1\/\/[0-9A-Za-z_-]{10,}/g, '[key]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]').replace(/\+?\d[\d\s().-]{8,}\d/g, '[phone]').slice(0, n);
+}
+function sheet_(name, header) {
+  var p = PropertiesService.getScriptProperties(), id = p.getProperty('REPORT_SHEET_ID'), ss;
+  if (id) ss = SpreadsheetApp.openById(id); else { ss = SpreadsheetApp.create('Prvlar reports and approvals'); p.setProperty('REPORT_SHEET_ID', ss.getId()); }
+  var sh = ss.getSheetByName(name); if (!sh) { sh = ss.insertSheet(name); sh.appendRow(header); }
+  return sh;
+}
+function owners_() { return String(PropertiesService.getScriptProperties().getProperty('OWNER_EMAILS') || OWNER_DEFAULT).toLowerCase().split(',').map(function (x) { return x.trim(); }).filter(String); }
+/** Owner check: a valid Google ID token for an allowed client whose verified email is an owner. */
+function ownerFromToken_(idToken) {
+  var aud = String(PropertiesService.getScriptProperties().getProperty('ALLOWED_AUD') || '').split(',').filter(String);
+  if (!idToken || !aud.length) return '';
+  try {
+    var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
+    if (r.getResponseCode() !== 200) return '';
+    var t = JSON.parse(r.getContentText()), em = String(t.email || '').toLowerCase();
+    if (aud.indexOf(t.aud) === -1 || String(t.email_verified) !== 'true' || Number(t.exp) * 1000 < Date.now()) return '';
+    return owners_().indexOf(em) !== -1 ? em : '';
+  } catch (x) { return ''; }
+}
+function count_(p, k, max) { var n = Number(p.getProperty(k) || 0); if (n >= max) return false; p.setProperty(k, String(n + 1)); return true; }
+function report_(req, p) {
+  var d = req.data || {};
+  if (!CATS[d.category]) return err_(400, 'Unknown report category.');
+  var id = String(d.id || '').replace(/[^0-9A-Za-z-]/g, '').slice(0, 64); if (!id) return err_(400, 'Missing report id.');
+  var answer = clean_(d.answer, 1500); if (!answer) return err_(400, 'Empty report.');
+  var t = today_(), lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (x) { return err_(429, 'Busy, try again later.', 'PRVLAR_BUSY'); }
+  try {
+    if (!count_(p, 'r:' + t + ':' + hash_(String(req.device)), REPORT_DEVICE_DAY)) return err_(429, 'Too many reports from this device today.', 'PRVLAR_LIMIT');
+    if (!count_(p, 'rg:' + t, REPORT_GLOBAL_DAY)) return err_(429, 'Too many reports today.', 'PRVLAR_LIMIT');
+    var sh = sheet_('Reports', ['received', 'id', 'category', 'kind', 'version', 'reported at', 'answer', 'question', 'note']);
+    var seen = sh.getRange(1, 2, Math.max(1, sh.getLastRow()), 1).getValues().some(function (r) { return r[0] === id; });
+    if (seen) return out_(200, { ok: true, duplicate: true });
+    var row = [new Date().toISOString(), id, d.category, clean_(d.kind, 20), clean_(d.version, 20), clean_(d.at, 30), answer, clean_(d.question, 300), clean_(d.note, 500)];
+    sh.appendRow(row);
+    if (count_(p, 'rm:' + t, REPORT_MAIL_DAY)) {
+      try { MailApp.sendEmail(owners_()[0], 'Prvlar: AI answer reported (' + d.category + ')', 'Category: ' + d.category + '\nKind: ' + row[3] + '\nVersion: ' + row[4] + '\nReport id: ' + id + '\n\nAnswer (excerpt):\n' + answer + '\n\nQuestion (excerpt):\n' + row[7] + '\n\nNote:\n' + row[8] + '\n\nAll reports: the "Prvlar reports and approvals" Google Sheet, or Developer panel › Reports.'); } catch (x) { /* sheet row is the record */ }
+    }
+  } finally { lock.releaseLock(); }
+  return out_(200, { ok: true });
+}
+function listReports_(req) {
+  if (!ownerFromToken_(req.idToken)) return err_(403, 'Only the owner can read reports.', 'PRVLAR_OWNER');
+  var sh = sheet_('Reports', ['received', 'id', 'category', 'kind', 'version', 'reported at', 'answer', 'question', 'note']);
+  var v = sh.getDataRange().getValues().slice(1).slice(-500);
+  return out_(200, { reports: v.map(function (r) { return { received: String(r[0]), id: r[1], category: r[2], kind: r[3], version: r[4], at: String(r[5]), answer: r[6], question: r[7], note: r[8] }; }) });
+}
+function approveRelease_(req) {
+  var who = ownerFromToken_(req.idToken); if (!who) return err_(403, 'Only the owner can approve a release.', 'PRVLAR_OWNER');
+  var d = req.data || {}, ver = String(d.version || ''), build = String(d.buildId || '');
+  if (!/^\d+\.\d+\.\d+$/.test(ver) || !/^[0-9a-f]{7,40}$/.test(build)) return err_(400, 'Bad version or build id.');
+  sheet_('Approvals', ['approved at', 'version', 'build', 'client time', 'by (hash)']).appendRow([new Date().toISOString(), ver, build, clean_(d.timestamp, 30), hash_(who).slice(0, 16)]);
+  return out_(200, { ok: true, version: ver, buildId: build });
+}
+/** Public read endpoint: GET ?action=approval&version=0.9.10&build=abc123 → { approved, at }. Holds no personal data. */
+function approval_(ver, build) {
+  var p = PropertiesService.getScriptProperties(); if (!p.getProperty('REPORT_SHEET_ID')) return { approved: false };
+  var v = sheet_('Approvals', ['approved at', 'version', 'build', 'client time', 'by (hash)']).getDataRange().getValues().slice(1);
+  for (var i = v.length - 1; i >= 0; i--) if (String(v[i][1]) === ver && String(v[i][2]) === build) return { approved: true, at: String(v[i][0]), version: ver, buildId: build };
+  return { approved: false, version: ver, buildId: build };
+}
+
+function doGet(e) {
+  var q = (e && e.parameter) || {};
+  if (q.action === 'approval') return out_(200, approval_(String(q.version || ''), String(q.build || ''))); return out_(200, { ok: true, service: 'prvlar-free-ai', configured: !!PropertiesService.getScriptProperties().getProperty('GEMINI_KEY') }); }
 
 function doPost(e) {
   var p = PropertiesService.getScriptProperties();
   var key = p.getProperty('GEMINI_KEY'), token = p.getProperty('APP_TOKEN');
-  if (!key) return err_(503, 'The free option is not set up yet.');
   var raw = (e && e.postData && e.postData.contents) || '';
   if (raw.length > MAX_BODY) return err_(413, 'Request too large for the free option. Use your own key for big documents.');
   var req; try { req = JSON.parse(raw); } catch (x) { return err_(400, 'Bad request.'); }
   if (!req || req.token !== token) return err_(403, 'This proxy only serves the Prvlar app.');
   if (!/^device-[0-9a-f-]{36}$/.test(String(req.device || ''))) return err_(400, 'Missing device id.');
-  // 0.9.9 compliance: server-side enforcement. The app sends eligible:true only after the 18+ date-of-birth check;
+  if (req.action === 'approveRelease') return approveRelease_(req);
+  if (req.action === 'listReports') return listReports_(req);
+  if (req.action === 'report') { if (req.eligible !== true) return err_(403, 'Reports need the 18+ confirmation.', 'PRVLAR_AGE'); if (raw.length > 20000) return err_(413, 'Report too large.'); return report_(req, p); }
+  if (req.action) return err_(400, 'Unknown action.');
+  if (!key) return err_(503, 'The free option is not set up yet.');
+  // 0.9.9 compliance: server-side enforcement. The app sends eligible:true only after the 18+ confirmation;
   // a direct request without it is refused. When ALLOWED_AUD is set, a valid Google ID token is required as well.
   if (req.eligible !== true) return err_(403, 'Online AI is only for users aged 18 or over.', 'PRVLAR_AGE');
   var audSet = String(p.getProperty('ALLOWED_AUD') || '').split(',').filter(String).length > 0;

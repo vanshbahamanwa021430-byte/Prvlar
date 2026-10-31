@@ -56,6 +56,17 @@ async function gasPost(endpoint, device, payload, timeout) {
     return new Response(JSON.stringify(j.body ?? {}), { status: Number(j.status) || 502, headers: { 'Content-Type': 'application/json' } });
   } finally { clearTimeout(t); }
 }
+// 0.9.10: non-chat proxy actions (AI answer reports). Same simple request shape; returns { status, body }.
+export async function proxyAction(action, device, data = {}, { timeout = 20000, withToken = false, fetchImpl = fetch } = {}) {
+  if (!FREE.url || !isGas(FREE.url)) return { status: 0, body: { error: { message: 'Reports server not configured.' } } };
+  const idToken = withToken ? await Promise.race([idTokenSource().catch(() => ''), new Promise(r => setTimeout(() => r(''), 5000))]) : '';
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const r = await fetchImpl(FREE.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, token: FREE.token, eligible: !!eligibleSource(), device, data, ...(idToken ? { idToken } : {}) }), signal: ctl.signal, redirect: 'follow' });
+    const j = await r.json().catch(() => ({ status: 502, body: {} }));
+    return { status: Number(j.status) || 502, body: j.body ?? {} };
+  } catch (e) { return { status: 0, body: { error: { message: String(e?.message || e) } } }; } finally { clearTimeout(t); }
+}
 export const isFreeLimit = e => /PRVLAR_LIMIT/.test(String(e?.message || e || ''));
 
 // Plain http is only allowed to this device or the local network (private IPv4 ranges, localhost, *.local).

@@ -28,3 +28,11 @@
 |---|---|
 | Real-device Android install (update over 0.9.8) | **NOT YET RUN**: owner will verify after release. Only static checks were done: signature certificate matches 0.9.8, versionName 0.9.9, versionCode 100909. |
 | Windows install (setup exe + portable zip) | **NOT YET RUN**: owner will verify after release. |
+
+## 0.9.10 additions
+| Item | Code | Test | Evidence |
+|---|---|---|---|
+| AI answer reports sent to the owner (sanitised: category, note, answer ≤1500, question ≤300, version, random id; no email/account, no whole document), offline queue + retry, local copy kept | src/reportsync.js; src/ai.js proxyAction; proxy Code.gs report_ | tests/reports0910.test.js; fulltest "Report AI answer" | – |
+| Proxy: report rate limits (10/device/day, 200/day, ≤50 emails/day); owner-only listReports / approveRelease via verified ID token | proxy/apps-script/Code.gs | tests/reports0910.test.js | – |
+| Release approval gate (exact version + build) | src/main.js relApprove; scripts/check-approval.mjs; .github/workflows/promote.yml | tests/reports0910.test.js | – |
+| **Proxy redeploy required** for reports and approvals (see proxy/apps-script/DEPLOY.md, "0.9.10 update") | – | – | NOT YET DEPLOYED |

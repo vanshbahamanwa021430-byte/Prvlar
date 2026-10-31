@@ -1,0 +1,35 @@
+# 0.9.10: a tagged build is uploaded as a PRE-RELEASE for the owner to test. It is promoted to the latest release only
+# when the owner has approved this exact version + build (Developer panel › Release approval, recorded by the proxy).
+name: Promote approved release
+on:
+  workflow_dispatch:
+    inputs:
+      tag: { description: 'Tag to promote (e.g. v0.9.10)', required: true }
+  schedule:
+    - cron: '*/30 * * * *'
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Pick the tag
+        id: t
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG=$(gh release list -R "$GITHUB_REPOSITORY" --json tagName,isPrerelease -q '[.[]|select(.isPrerelease)][0].tagName'); fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Check owner approval for this version + build
+        if: steps.t.outputs.tag != ''
+        id: ok
+        run: |
+          git checkout -q "${{ steps.t.outputs.tag }}"
+          if node scripts/check-approval.mjs "${TAG_V#v}" "$(git rev-parse --short=12 HEAD)"; then echo "ok=true" >> "$GITHUB_OUTPUT"; fi
+        env: { TAG_V: '${{ steps.t.outputs.tag }}' }
+      - name: Promote to latest
+        if: steps.ok.outputs.ok == 'true'
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release edit "${{ steps.t.outputs.tag }}" -R "$GITHUB_REPOSITORY" --prerelease=false --latest
