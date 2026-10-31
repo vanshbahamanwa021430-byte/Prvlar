@@ -54,7 +54,7 @@ music.keepPlaying = () => state.focusRun.running && state.focusRun.phase === 'fo
 onMusicChange(() => { if (state.view === 'focus') render(); });
 import { speak, stopSpeaking, speechSupported } from './speech.js';
 import { drawerHTML, edgeSwipe } from './drawer.js';
-import { checkAge, ageStatus, isAdult, MINOR_MSG, ageRecheckAllowed } from './age.js';
+import { confirmAdult, clearAdult, ageStatus, isAdult, confirmedOn } from './age.js';
 import { aiDecision } from './aigate.js';
 import { CATEGORIES as REP_CATS, STATUSES as REP_STATUS, makeReport, addReport, listReports, setStatus as setRepStatus, exportReports, deleteAllReports } from './aireport.js';
 import { safeBgUrl } from './safeurl.js';
@@ -76,6 +76,12 @@ import { buildReport, allowReport, issueUrl, mailtoUrl, postReport, reportText, 
 
 // Reaching this line means the device's browser engine could run the app (see public/compat.js).
 window.__atlasBooted = true;
+// Perf (0.9.10): "lite" rendering on low-memory devices and Android WebViews with <=4 GB (no live blur, lighter shadows).
+// Same features and layout; 'prvlar-lite' = '1' / '0' in storage forces it on or off.
+const LITE = (() => { try { const o = localStorage.getItem('prvlar-lite'); if (o === '1' || o === '0') return o === '1'; } catch { /* storage blocked */ }
+  const mem = navigator.deviceMemory || 0, android = /Android/i.test(navigator.userAgent);
+  return !!(navigator.connection?.saveData || (mem && mem < 4) || (android && mem && mem <= 4) || matchMedia?.('(prefers-reduced-transparency: reduce)').matches); })();
+if (LITE) document.documentElement.classList.add('lite');
 
 /* global __APP_VERSION__ */
 const VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
@@ -215,19 +221,18 @@ function fallbackChain() {
 const aiConfig = () => state.fb?.on ? { chain: fallbackChain() } : primaryConfig();
 const saveFb = () => { const f = { ...state.fb }; for (const k of ['gemini', 'groq', 'url', 'key']) if (PACK_KEYS.has(f[k])) f[k] = ''; writeJSON('prvlar-fallback', state.remember ? f : { ...f, gemini: '', groq: '', key: '' }); };
 // 0.9.9: Prvlar works offline; the first time anything would go to an online AI service, ask once.
-// 0.9.9 compliance: date-of-birth check (only the result is stored). Under-18s keep the offline features.
+// 0.9.10: a single "I'm 18 or older" confirmation (flag + date only). Offline features never need it.
 function requireAdult(what) {
-  const st = ageStatus();
-  if (st === 'adult') return true;
-  if (st === 'minor') throw Error(MINOR_MSG);
-  state.ageAsk = { what }; render(); setTimeout(() => document.getElementById('age-dob')?.focus(), 30);
+  if (ageStatus() === 'adult') return true;
+  state.ageAsk = { what }; render(); setTimeout(() => document.getElementById('age-ok')?.focus(), 30);
   throw Error(`Confirm your age to ${what}.`);
 }
 function ageModalHTML() {
   if (!state.ageAsk) return '';
   return `<div class="sheet-backdrop" data-action="ageCancel"></div><section class="sheet age-sheet" role="dialog" aria-modal="true" aria-labelledby="age-h"><h2 class="h2" id="age-h">${icon('info', 20)}Confirm your age</h2>
-<p>Online AI, Google sign-in and problem reports are for users aged 18 or over. Enter your date of birth. Prvlar keeps only whether you are 18 or over, not the date.</p>
-<label class="field"><span>Date of birth</span><input class="input" type="date" id="age-dob" max="${today()}"></label>
+<p>Online AI, Google sign-in and cloud features and problem reports are for users aged 18 or over. Everything else works offline without this.</p>
+<label class="radio-row age-ok"><input type="checkbox" id="age-ok"> I'm 18 or older</label>
+<p class="fine">Prvlar stores only that you confirmed and the date.</p>
 <div class="row"><button class="btn primary" data-action="ageConfirm">${icon('check', 18)}Confirm</button><button class="btn outline" data-action="ageCancel">Cancel</button></div>
 <p class="fine">This is a self-declaration. It is not parental consent.</p></section>`;
 }
@@ -1215,7 +1220,7 @@ ${fallbackHTML()}
 <section class="card" aria-labelledby="notif-h"><h2 class="h2" id="notif-h">Notifications</h2><p class="muted">${state.notifPerm === 'granted' ? 'Notifications are on.' : 'Allow notifications to get reminders and focus-timer alerts.'}</p><div class="row"><button class="btn outline" data-view="planner">${icon('bell', 18)}Reminders and goals</button><button class="btn outline" data-view="focus">${icon('timer', 18)}Focus timer alerts</button></div></section>
 <section class="card" aria-labelledby="data-h"><h2 class="h2" id="data-h">Data and backup</h2><p class="muted">Documents, notes, flashcards, planner, study time, progress and results are stored only on this device${state.storage ? ` (${fmtBytes(state.storage.used)} used)` : ''}. Uninstalling the app or clearing its data deletes them, so back up now and then.</p>
 <div class="row"><button class="btn outline" data-action="exportBackup">${icon('download', 18)}Back up</button><button class="btn outline" data-action="exportBackupEnc">${icon('lock', 18)}Encrypted backup</button><label class="btn outline file-btn">${icon('upload', 18)}<span>Restore</span><input type="file" data-restore accept=".json,application/json" aria-label="Restore a backup"></label></div>
-<div class="age-row"><p><b>Age check</b>: ${ageStatus() === 'adult' ? '18 or over (online features available)' : ageStatus() === 'minor' ? 'under 18 (offline features only)' : 'not done yet'}. Only this result is kept, not your date of birth.</p><button class="btn outline sm" data-action="ageRecheck">${icon('info', 16)}${ageStatus() === 'unknown' ? 'Check age' : 'Check again'}</button></div>
+<div class="age-row"><p><b>18+ confirmation</b>: ${isAdult() ? `confirmed${confirmedOn() ? ' on ' + esc(confirmedOn()) : ''} (online features available)` : 'not confirmed (offline features only)'}. Only the confirmation and its date are kept.</p><button class="btn outline sm" data-action="ageRecheck">${icon('info', 16)}${isAdult() ? 'Withdraw' : 'Confirm'}</button></div>
 <label class="toggle-row"><span><b>Online AI allowed</b><span>Turn off to keep everything on this device. Prvlar asks again before AI is used.</span></span><input type="checkbox" data-pref099="ai"${localStorage.getItem('prvlar-ai-consent') === '1' ? ' checked' : ''}><span class="switch${localStorage.getItem('prvlar-ai-consent') === '1' ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 <label class="toggle-row"><span><b>Save crash reports</b><span>Off by default. Errors are kept only on this device, with keys and emails removed. Nothing is sent.</span></span><input type="checkbox" data-pref099="crash"${crashEnabled() ? ' checked' : ''}><span class="switch${crashEnabled() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 ${crashEnabled() ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : ''}</section>
@@ -1968,7 +1973,7 @@ async function submit() {
       try {
         if (!aiAvailable()) throw Error('no AI key or AI server is set');
         if (!state.aiConsent) throw Error('sending answers to the AI was not confirmed');
-        if (!aiAllowedQuiet()) throw Error(isAdult() ? 'online AI was not allowed' : 'online AI marking is only for users aged 18 or over');
+        if (!aiAllowedQuiet()) throw Error(isAdult() ? 'online AI was not allowed' : 'online AI marking needs the 18+ confirmation');
         if (!usingServer() && !navigator.onLine) throw Error('you are offline');
         grades.push(...await gradeWritten(doc, aiConfig(), questions, answers));
       } catch (e) {
@@ -2527,9 +2532,9 @@ async function mountCodeEditor() {
 }
 
 const actions = {
-  ageConfirm() { const v = document.getElementById('age-dob')?.value; const r = checkAge(v); state.ageAsk = null; if (r === 'minor') { state.error = MINOR_MSG; } else state.notice = 'Thanks. Online features are available.'; render(); },
+  ageConfirm() { if (!document.getElementById('age-ok')?.checked) throw Error('Tick “I\'m 18 or older” to continue, or use the offline features.'); confirmAdult(); state.ageAsk = null; state.notice = 'Thanks. Online features are available.'; render(); },
   ageCancel() { state.ageAsk = null; render(); },
-  ageRecheck() { if (!ageRecheckAllowed()) throw Error('You can check your age again 30 days after the last check.'); state.ageAsk = { what: 'use online features' }; render(); },
+  ageRecheck() { if (isAdult()) { clearAdult(); state.notice = 'Confirmation withdrawn. Online features are off until you confirm again.'; render(); return; } state.ageAsk = { what: 'use online features' }; render(); },
   aiRepCancel() { state.aiRep = null; render(); },
   aiRepSend() {
     const cat = document.querySelector('input[name=airep-cat]:checked')?.value, note = document.getElementById('airep-note')?.value || '';
@@ -3229,7 +3234,8 @@ if (isNative() && platform() === 'android') {
 applyTheme();
 applyReading();
 applyUiSize();
-preloadVisuals().then(() => { if (['chat', 'smarty'].includes(state.view)) render(); }).catch(() => {});
+// Perf (0.9.10): maths/sanitiser bundle loads at once only when a chat is open, otherwise in idle time.
+{ const pv = () => preloadVisuals().then(() => { if (['chat', 'smarty'].includes(state.view)) render(); }).catch(() => {}); if (['chat', 'smarty'].includes(state.view)) pv(); else (globalThis.requestIdleCallback || (f => setTimeout(f, 1200)))(pv, { timeout: 4000 }); }
 requestPersistence();
 // Run-time config (config.json next to the app): lets the owner switch on the free proxy without a rebuild.
 fetch('./config.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(c => {
@@ -3297,14 +3303,16 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 refresh().then(async () => {
   if (restoreDraft()) { state.view = 'test'; render(); }   // a test in progress survives a reload
   try { history.replaceState(null, '', '#' + state.view); } catch { /* file:// or sandboxed */ }
-  state.notifPerm = await permission(); state.exactPerm = await exactAlarm();
+  // Perf (0.9.10): permission checks no longer block start-up (and can never break it if the plugin fails).
+  Promise.allSettled([permission(), exactAlarm()]).then(([v, x]) => { state.notifPerm = v.value ?? 'denied'; state.exactPerm = x.value ?? 'unsupported'; if (state.view === 'planner') render(); });
   booted = true; ED.onBoot();
   rescheduleReminders().catch(() => {});
   // Startup work done behind the launch intro: data, settings/theme, Google session + owner pack (from cache), fonts.
   await Promise.race([Promise.all([ownerReady, document.fonts?.ready]), new Promise(r => setTimeout(r, 4000))]);
   appReady();
   // Warm the heavier tab bundles in idle time so the first open is instant.
-  (globalThis.requestIdleCallback || (f => setTimeout(f, 1500)))(() => { import('./editor.js').catch(() => {}); import('pdfjs-dist/legacy/build/pdf.mjs').catch(() => {}); });
+  // Perf (0.9.10): only on capable devices; low-memory phones load these on first use instead.
+  if (!LITE) (globalThis.requestIdleCallback || (f => setTimeout(f, 1500)))(() => { import('./editor.js').catch(() => {}); import('pdfjs-dist/legacy/build/pdf.mjs').catch(() => {}); }, { timeout: 8000 });
 }).catch(e => { appReady(); fail(e); });
 function appReady() { try { performance.mark('prvlar-ready'); } catch { /* old browsers */ } globalThis.__prvlarReady?.(); }
 

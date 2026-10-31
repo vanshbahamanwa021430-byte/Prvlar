@@ -1924,3 +1924,10 @@ button, .btn, .icon-btn, .seg-btn, .list-row, .option, .tab, .side-link, .chip-b
 .airep-cats { border: 0; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
 .radio-row { display: flex; gap: 8px; align-items: center; min-height: 40px; }
 .airep .audit { margin: 6px 0 0; padding-left: 1.2em; }
+
+/* Perf (0.9.10): lite rendering on low-end devices. backdrop-filter re-blurs everything behind fixed/sticky bars and
+   glass cards on every scroll frame, which is the main source of jank in older Android WebViews. */
+html.lite *, html.lite *::before, html.lite *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.lite[data-theme="glass"] { --surface: rgba(52, 41, 140, .94); --surface-2: rgba(66, 54, 160, .94); --chip: rgba(80, 68, 175, .95); --glass: rgba(45, 35, 120, .96); }
+html.lite .tabbar, html.lite .topbar { background: var(--surface); }
+html.lite .card { box-shadow: 0 1px 3px rgba(15, 26, 61, .12); }

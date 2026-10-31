@@ -79,6 +79,7 @@ export function maskSecrets(v) {
 export function ring(max) { const a = []; return { push(x) { a.push(x); if (a.length > max) a.splice(0, a.length - max); return x; }, all: () => a.slice(), clear() { a.length = 0; } }; }
 export const logs = ring(300), requests = ring(60);
 export const perf = { renders: 0, renderMs: 0, slowest: 0 };
+globalThis.__prvlarPerf = perf;   // read by the performance test (counts only, no content)
 export function recordRender(ms) { perf.renders++; perf.renderMs += ms; perf.slowest = Math.max(perf.slowest, ms); }
 export function recordRequest({ url, headers, body, status, ms, error, chars }) {
   let model = ''; try { model = JSON.parse(body || '{}').model || ''; } catch { /* not JSON */ }
