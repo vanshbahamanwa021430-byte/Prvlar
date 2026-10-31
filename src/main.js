@@ -45,7 +45,7 @@ import { registerPlugin } from '@capacitor/core';
 import { checkForUpdate, AUTO_INTERVAL, RELEASES_PAGE, UPDATE_REPO, setUpdateRepo } from './update.js';
 import { ownerPackController, webSecureStore, nativeSecureStore, memoryStore, isPackEnvelope, OWNER_PACK_NAME, LEGACY_OWNER_PACK_NAME } from './ownerpack.js';
 import { newCard, review, preview, whenLabel, isNew, dueQueue, deckStats, cardFromQuestion } from './srs.js';
-import { dayKey, dayStart, addDays, lastDays, streaks, xpTotal, levelFor, BADGES, earnedBadges, errorEntries, weakTopics, daysUntil, recommend, nextPhase } from './progress.js';
+import { pctOf, dayKey, dayStart, addDays, lastDays, streaks, xpTotal, levelFor, BADGES, earnedBadges, errorEntries, weakTopics, daysUntil, recommend, nextPhase } from './progress.js';
 import { permission, askPermission, exactAlarm, askExactAlarm, scheduleReminders, scheduleFocusEnd, cancelFocusEnd, notifyNow } from './notify.js';
 import { SOUNDS, soundSupported, playAmbient, setAmbientVolume, stopAmbient, chime } from './sound.js';
 import { music, CURATED, parseSpotify, spotifyUri, loadSpotify, addLocalFiles, playLocal, removeLocal, musicPlay, musicPause, musicTimer, placeMusic, onMusicChange, nextIndex, prevIndex, spotifyLogin, openSpotifyApp } from './music.js';
@@ -77,6 +77,7 @@ import { buildReport, allowReport, issueUrl, mailtoUrl, postReport, reportText, 
 
 // Reaching this line means the device's browser engine could run the app (see public/compat.js).
 window.__atlasBooted = true;
+import('./keyboard.js').then(async ({ setupKeyboard }) => { let native = null; if (isNative()) { try { const { Keyboard } = await import('@capacitor/keyboard'); native = { addListener: (ev, f) => Keyboard.addListener(ev, f) }; } catch { /* plugin missing */ } } setupKeyboard({ native }); }).catch(() => {});
 // Perf (0.9.10): "lite" rendering on low-memory devices and Android WebViews with <=4 GB (no live blur, lighter shadows).
 // Same features and layout; 'prvlar-lite' = '1' / '0' in storage forces it on or off.
 const LITE = (() => { try { const o = localStorage.getItem('prvlar-lite'); if (o === '1' || o === '0') return o === '1'; } catch { /* storage blocked */ }
@@ -185,9 +186,10 @@ const uiSizeSeg = () => `<div class="seg ui-size" role="radiogroup" aria-label="
 // First run: three short screens (name, comfort, AI). Shown once; everything is changeable in Settings.
 function welcomeHTML() {
   const busy = state.busy === 'sync';
-  return `<div class="onboard welcome-gate" role="dialog" aria-modal="true" aria-label="Welcome"><div class="ob-card card"><span class="ob-art">${logo()}</span><h1>Welcome to Prvlar</h1><p>Sign in to back up and sync your study across devices, in your own Google Drive. Or keep everything on this device.</p>${cloudAvailable() ? `<button class="btn primary big block g-btn" data-action="gateSignIn"${state.busy ? ' disabled' : ''}>${busy ? '<span class="spin"></span>' : icon('login', 20)}Sign in with Google</button>` : `<button class="btn primary big block g-btn" disabled aria-disabled="true">${icon('login', 20)}Sign in with Google</button><p class="fine gate-soon">Google sign-in is coming soon on iPhone and iPad. For now, continue without an account; everything works on this device.</p>`}<button class="btn ghost block" data-action="gateGuest">Continue without account</button><p class="fine">Works fully offline. You can sign in later in Settings.</p></div></div>`;
+  return `<div class="onboard welcome-gate" role="dialog" aria-modal="true" aria-label="Welcome"><div class="ob-card card"><span class="ob-art">${logo()}</span><h1>Welcome to Prvlar</h1><p>Sign in to back up and sync your study across devices, in your own Google Drive. Or keep everything on this device.</p>${cloudAvailable() ? `<button class="btn primary big block g-btn" data-action="gateSignIn"${state.busy ? ' disabled' : ''}>${busy ? '<span class="spin"></span>' : icon('login', 20)}Sign in with Google</button>` : `<button class="btn primary big block g-btn" disabled aria-disabled="true">${icon('login', 20)}Sign in with Google</button><p class="fine gate-soon">Google sign-in is not available in this browser yet. Continue without an account; everything works on this device.</p>`}<button class="btn ghost block" data-action="gateGuest">Continue without account</button><p class="fine">Works fully offline. You can sign in later in Settings.</p></div></div>`;
 }
 function onboardingHTML() {
+  if (['dev', 'privacy', 'terms', 'about'].includes(state.view)) return '';   // 0.9.10: never cover these pages
   if (needsWelcome({ available: cloudAvailable(), soon: gatePlatform() === 'ios', signedIn: !!account(), entry: readJSON('prvlar-entry', '') })) return welcomeHTML();
   if (readJSON('prvlar-onboarded', false)) return '';
   const step = state.onStep || 0;
@@ -293,6 +295,7 @@ const typeOf = name => ({ pdf: 'pdf', docx: 'docx', pptx: 'pptx' })[extOf(name)]
 const fileTitle = d => String(d?.name || '').replace(/\.(pdf|docx|pptx|txt|md)$/i, '');
 // A document with one top heading (its title) is shown by that title; otherwise by its file name.
 const docTitle = d => { if (!Array.isArray(d?.sections)) return fileTitle(d); const top = outline(d).filter(n => n.parent === 'root'); return top.length === 1 && top[0].title ? top[0].title : fileTitle(d); };
+// 0.9.10: a test attempt without a valid percent (old or imported backups) counts as 0 instead of showing NaN%.
 // 0.9.10: PDFs split by headings count sections, not pages; a one-section document shows "1 section", never 0.
 const byPage = d => (d.sections || []).length > 0 && d.sections.every(s => /^(Page|Slide) \d+/.test(s.ref || ''));
 const unitOf = d => d.mapBy === 'ai' ? 'topic' : byPage(d) ? ({ pdf: 'page', pptx: 'slide' })[extOf(d.name)] || 'section' : 'section';
@@ -635,7 +638,7 @@ ${importBtn('btn btn-hero', 'Import a document')}${fileTiles()}</section>`;
   }
   const doc = current() || state.docs[0];
   const total = studyable(doc).length, done = studied(doc), atts = state.attempts;
-  const avg = atts.length ? Math.round(atts.reduce((s, a) => s + a.percent, 0) / atts.length) : null;
+  const avg = atts.length ? Math.round(atts.reduce((s, a) => s + pctOf(a), 0) / atts.length) : null;
   const studiedAll = state.docs.reduce((s, d) => s + studied(d), 0);
   const hour = new Date().getHours(), hello = hour < 5 ? 'Studying late' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const quick = `<section class="quick3" aria-label="Quick actions">${userStream() === 'cs' ? `<button class="quick" data-view="code">${icon('code', 22)}<span>Smarty Code</span></button>` : ''}<button class="quick" data-view="smarty">${icon('brain', 22)}<span>Ask Smarty</span></button><button class="quick" data-view="test">${icon('test', 22)}<span>Start practice</span></button><label class="quick file-btn">${icon('plus', 22)}<span>Add document</span><input type="file" data-import multiple accept="${ACCEPT}" aria-label="Add document"></label></section>`;
@@ -655,7 +658,7 @@ ${avg != null ? `<p class="fine center">${plural(atts.length, 'test')} taken · 
 
 /* ---------- library and search ---------- */
 function docCard(d) {
-  const atts = docAttempts(d.id), best = atts.length ? Math.max(...atts.map(a => a.percent)) : null;
+  const atts = docAttempts(d.id), best = atts.length ? Math.max(...atts.map(pctOf)) : null;
   const total = studyable(d).length, done = studied(d);
   return `<li class="doc-card${d.id === state.doc ? ' is-current' : ''}">
 <button class="doc-main" data-open="${esc(d.id)}" aria-label="Open ${esc(docTitle(d))}">
@@ -1143,7 +1146,7 @@ function viewMore() {
 
 function viewResults() {
   const list = state.attempts;
-  const avg = list.length ? Math.round(list.reduce((s, a) => s + a.percent, 0) / list.length) : 0, best = list.length ? Math.max(...list.map(a => a.percent)) : 0;
+  const avg = list.length ? Math.round(list.reduce((s, a) => s + pctOf(a), 0) / list.length) : 0, best = list.length ? Math.max(...list.map(pctOf)) : 0;
   return `${backHead('Results')}<div class="view narrow">${list.length ? `<section class="stats3"><div class="stat"><b>${list.length}</b><span>${list.length === 1 ? 'Test' : 'Tests'}</span></div><div class="stat"><b>${avg}%</b><span>Average</span></div><div class="stat good"><b>${best}%</b><span>Best</span></div></section>` : ''}
 ${list.length ? `<ul class="attempts">${list.map(attemptRow).join('')}</ul>` : `<div class="empty card">${icon('trophy', 34)}<h2>No tests yet</h2><p>Your scores and the model answers are kept here, even if you later delete the document.</p><button class="btn primary" data-view="test">${icon('test', 18)}Take a test</button></div>`}</div>`;
 }
@@ -1225,12 +1228,12 @@ ${fallbackHTML()}
 <section class="card" aria-labelledby="notif-h"><h2 class="h2" id="notif-h">Notifications</h2><p class="muted">${state.notifPerm === 'granted' ? 'Notifications are on.' : 'Allow notifications to get reminders and focus-timer alerts.'}</p><div class="row"><button class="btn outline" data-view="planner">${icon('bell', 18)}Reminders and goals</button><button class="btn outline" data-view="focus">${icon('timer', 18)}Focus timer alerts</button></div></section>
 <section class="card" aria-labelledby="data-h"><h2 class="h2" id="data-h">Data and backup</h2><p class="muted">Documents, notes, flashcards, planner, study time, progress and results are stored only on this device${state.storage ? ` (${fmtBytes(state.storage.used)} used)` : ''}. Uninstalling the app or clearing its data deletes them, so back up now and then.</p>
 <div class="row"><button class="btn outline" data-action="exportBackup">${icon('download', 18)}Back up</button><button class="btn outline" data-action="exportBackupEnc">${icon('lock', 18)}Encrypted backup</button><label class="btn outline file-btn">${icon('upload', 18)}<span>Restore</span><input type="file" data-restore accept=".json,application/json" aria-label="Restore a backup"></label></div>
-<div class="age-row"><p><b>18+ confirmation</b>: ${isAdult() ? `confirmed${confirmedOn() ? ' on ' + esc(confirmedOn()) : ''} (online features available)` : 'not confirmed (offline features only)'}. Only the confirmation and its date are kept.</p><button class="btn outline sm" data-action="ageRecheck">${icon('info', 16)}${isAdult() ? 'Withdraw' : 'Confirm'}</button></div>
-<label class="toggle-row"><span><b>Online AI allowed</b><span>Turn off to keep everything on this device. Prvlar asks again before AI is used.</span></span><input type="checkbox" data-pref099="ai"${localStorage.getItem('prvlar-ai-consent') === '1' ? ' checked' : ''}><span class="switch${localStorage.getItem('prvlar-ai-consent') === '1' ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
-<label class="toggle-row"><span><b>Save crash reports</b><span>Off by default. Errors are kept only on this device, with keys and emails removed. Nothing is sent.</span></span><input type="checkbox" data-pref099="crash"${crashEnabled() ? ' checked' : ''}><span class="switch${crashEnabled() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
-${crashEnabled() ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : ''}
+<label class="toggle-row age-row"><span><b>I’m 18 or older</b><span>${isAdult() ? `Confirmed${confirmedOn() ? ' on ' + esc(confirmedOn()) : ''}: online AI, Google sign-in and reports are available. Only this confirmation and its date are stored.` : 'Not confirmed: online AI, Google sign-in and reports stay off. Every offline feature works.'}</span></span><input type="checkbox" data-pref099="age"${isAdult() ? ' checked' : ''}><span class="switch${isAdult() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
+<label class="toggle-row"><span><b>Online AI allowed</b><span>${localStorage.getItem('prvlar-ai-consent') === '1' ? 'On: AI features may send the needed text to your AI service. Turn off to keep everything on this device.' : 'Off: nothing is sent to an AI service. Prvlar asks before any AI feature is used.'}</span></span><input type="checkbox" data-pref099="ai"${localStorage.getItem('prvlar-ai-consent') === '1' ? ' checked' : ''}><span class="switch${localStorage.getItem('prvlar-ai-consent') === '1' ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
+<label class="toggle-row"><span><b>Save crash reports</b><span>${crashEnabled() ? 'On: errors are saved on this device, with keys and emails removed. Nothing is sent unless “Send crash reports automatically” (Send a suggestion) is on.' : 'Off (the default): nothing is saved. Turn on to keep errors on this device for troubleshooting. Nothing is sent unless “Send crash reports automatically” is on.'}</span></span><input type="checkbox" data-pref099="crash"${crashEnabled() ? ' checked' : ''}><span class="switch${crashEnabled() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
+${crashEnabled() ? (crashReports().length ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : '<p class="fine">No crash reports saved.</p>') : ''}
 <div class="danger-zone"><p class="fine"><b>Delete all data on this device</b>: documents, notes, flashcards, tests, planner, progress, Smarty chats, settings, keys and reports. ${account() ? 'Your Google Drive copy is not touched (use Account › Delete cloud data for that).' : ''}</p><button class="btn ghost danger" data-action="wipeAll">${icon('trash', 18)}Delete all data</button></div></section>
-<section class="card about"><span class="about-logo">${logo()}</span><div><b>Prvlar ${esc(VERSION)}</b><p class="fine">Running on this ${where}. Works on Android 6 or later, iPhone and iPad with iOS 14 or later, Windows, and current browsers.</p><button class="link-btn" data-view="about">${icon('info', 16)}About us and suggestions</button></div></section>
+<section class="card about"><span class="about-logo">${logo()}</span><div><b>Prvlar ${esc(VERSION)}</b><p class="fine">Running on this ${where}. Apps for Android 6 or later and Windows 10 or later. On iPhone, iPad and other devices, use it in a current browser (it can be added to the Home Screen); there is no App Store app yet.</p><button class="link-btn" data-view="about">${icon('info', 16)}About us and suggestions</button></div></section>
 <section class="card" aria-labelledby="legal-h"><h2 class="h2" id="legal-h">About and legal</h2><div class="row"><button class="btn outline sm" data-view="about">About us</button><button class="btn outline sm" data-view="privacy">Privacy policy</button><button class="btn outline sm" data-view="terms">Terms</button><button class="btn outline sm" data-view="licenses">Licences</button></div></section>
 </div>`;
 }
@@ -1358,8 +1361,8 @@ function activeDays() {
 }
 function progressStats() {
   const st = streaks(activeDays(), today()), minutes = totalMinutes(), reviews = totalReviews(), sections = sectionsStudied();
-  const xp = xpTotal({ minutes, reviews, sections, tests: state.attempts.map(a => a.percent) });
-  return { ...st, minutes, reviews, sections, xp, lvl: levelFor(xp), tests: state.attempts.length, bestPercent: Math.max(0, ...state.attempts.map(a => a.percent)), fixed: fixedCount() };
+  const xp = xpTotal({ minutes, reviews, sections, tests: state.attempts.map(pctOf) });
+  return { ...st, minutes, reviews, sections, xp, lvl: levelFor(xp), tests: state.attempts.length, bestPercent: Math.max(0, ...state.attempts.map(pctOf)), fixed: fixedCount() };
 }
 const dueCount = (docId = null) => dueQueue(state.cards, { documentId: docId, limit: 1e6, newLimit: state.goals.dailyCards || 20 }).length;
 function dueByDoc() { const m = {}; for (const c of dueQueue(state.cards, { limit: 1e6, newLimit: 1e6 })) { const k = c.documentId || ''; m[k] = (m[k] || 0) + 1; } return m; }
@@ -1608,7 +1611,7 @@ ${done.length ? `<h2 class="section-h">Done <span class="count">${done.length}</
 <p class="fine">Study time counts focus-timer blocks and time spent reading sections.</p></section>
 <section class="card"><h2 class="h2">${icon('bell', 20)}Reminders</h2>
 ${perm === 'granted' ? `<div class="status ok">${icon('checkCircle', 20)}<p>Notifications are allowed${isNative() ? '' : ' (they appear while this page is open)'}.</p></div>`
-      : perm === 'unsupported' ? `<div class="status warn">${icon('info', 20)}<p>This browser can’t show notifications. Reminders work in the Android and iPhone apps.</p></div>`
+      : perm === 'unsupported' ? `<div class="status warn">${icon('info', 20)}<p>This browser can’t show notifications. Reminders work in the Android app.</p></div>`
       : `<div class="status warn">${icon('bellOff', 20)}<div><p>${perm === 'denied' ? 'Notifications are blocked. Allow them for Prvlar in your phone’s Settings › Apps › Notifications.' : 'Allow notifications to get reminders.'}</p>${perm === 'denied' ? '' : `<button class="btn primary sm" data-action="allowNotif">${icon('bell', 17)}Allow notifications</button>`}</div></div>`}
 ${perm === 'granted' && state.exactPerm === 'denied' ? `<div class="status warn">${icon('info', 20)}<div><p>On-time reminders are off, so Android may deliver reminders a few minutes late.</p><button class="btn primary sm" data-action="allowExact">${icon('bell', 17)}Allow on-time reminders</button></div></div>` : ''}
 <label class="toggle-row"><span><b>Daily study reminder</b><span>Every day at the time below.</span></span><input type="checkbox" data-remind="daily"${r.daily ? ' checked' : ''}><span class="switch${r.daily ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
@@ -1817,7 +1820,7 @@ ${recs.length ? `<h2 class="section-h">${icon('bulb', 20)}What to revise next</h
 <section class="stats3"><div class="stat"><b>${fmtMin(minutesOn(t))}</b><span>Today (goal ${fmtMin(state.goals.dailyMinutes)})</span></div><div class="stat"><b>${(s.minutes / 60).toFixed(1)} h</b><span>Studied in total</span></div><div class="stat"><b>${avg === null ? '–' : avg + '%'}</b><span>Test average</span></div></section>
 <section class="card"><h2 class="h2">${icon('chart', 20)}Minutes studied, last 14 days</h2>${barsSVG(mins, labels, { goal: state.goals.dailyMinutes, unit: ' min' })}<p class="fine">The line is your daily goal.</p></section>
 <section class="card topics"><h2>Time per document</h2>${perDoc.length || general ? `<ul>${perDoc.map(x => `<li><div class="topic-row"><span>${esc(docTitle(x.d))}</span><b>${fmtMin(x.m)}</b></div><span class="tbar good"><span style="width:${Math.max(2, pct(x.m, maxDoc))}%"></span></span></li>`).join('')}${general ? `<li><div class="topic-row"><span>General study</span><b>${fmtMin(general)}</b></div><span class="tbar mid"><span style="width:${Math.max(2, pct(general, maxDoc))}%"></span></span></li>` : ''}</ul>` : '<p class="muted">Use the focus timer or read a section to log study time.</p>'}</section>
-<section class="card"><h2 class="h2">${icon('trend', 20)}Test scores</h2>${tests.length ? barsSVG(tests.map(a => a.percent), tests.map(a => fmtDate(a.submittedAt)), { unit: '%' }) + `<p class="fine">Your last ${plural(tests.length, 'test')}, oldest on the left. Best ${s.bestPercent}%.</p>` : '<p class="muted">No tests yet.</p>'}
+<section class="card"><h2 class="h2">${icon('trend', 20)}Test scores</h2>${tests.length ? barsSVG(tests.map(pctOf), tests.map(a => fmtDate(a.submittedAt)), { unit: '%' }) + `<p class="fine">Your last ${plural(tests.length, 'test')}, oldest on the left. Best ${s.bestPercent}%.</p>` : '<p class="muted">No tests yet.</p>'}
 <div class="stats3 inner"><div class="stat"><b>${s.reviews}</b><span>Cards reviewed</span></div><div class="stat"><b>${s.reviews ? pct(correct, s.reviews) + '%' : '–'}</b><span>Remembered</span></div><div class="stat"><b>${openErrors().length}</b><span>Mistakes to retry</span></div></div></section>
 <section class="card topics"><h2>Weak sections</h2>${weak.length ? `<ul>${weak.map(w => `<li><button class="topic-btn" data-rec-topic="${esc(w.docId)}::${esc(w.topic)}"><div class="topic-row"><span>${esc(w.topic)} <span class="fine">· ${esc(titleOf(w.docId))}</span></span><b>${w.percent}%</b></div><span class="tbar ${w.percent >= 50 ? 'mid' : 'low'}"><span style="width:${Math.max(2, w.percent)}%"></span></span></button></li>`).join('')}</ul>` : '<p class="muted">Topics where you score under 70% across your tests appear here.</p>'}</section>
 <h2 class="section-h">${icon('award', 20)}Badges <span class="count">${earned.size}/${BADGES.length}</span></h2>
@@ -2276,7 +2279,7 @@ function reportHTML() {
 <label class="field"><span>Contact (optional)</span><input class="input" id="rp-contact" maxlength="120" placeholder="Email or handle, only if you want a reply" value="${esc(r.contact || '')}" autocomplete="off"></label>
 <div class="code-acts">${REPORT_URL ? `<button class="btn primary" data-action="rpSend">${icon('send', 17)}Send report</button>` : ''}${reportRepo() ? `<button class="btn ${REPORT_URL ? 'outline' : 'primary'}" data-action="rpIssue">${icon('share', 17)}Open as GitHub issue</button>` : ''}${REPORT_EMAIL ? `<button class="btn outline" data-action="rpMail">Email it</button>` : ''}<button class="btn outline" data-action="rpCopy">Copy report</button></div>
 ${sent ? `<p class="status ok" role="status">${esc(sent)}</p>` : ''}
-<label class="toggle-row compact"><span><b>Send crash reports automatically</b><span>When the app hits an error, send the error message, app version and platform (never your documents or personal data). A few per day at most.</span></span><input type="checkbox" class="switch" id="rp-auto"${autoReportsOn() ? ' checked' : ''}></label></section></div>`;
+<label class="toggle-row compact"><span><b>Send crash reports automatically</b><span>When the app hits an error, send the error message, app version and platform (never your documents or personal data). A few per day at most.</span></span><input type="checkbox" class="switch" id="rp-auto"${autoReportsOn() ? ' checked' : ''}${isAdult() ? '' : ' disabled aria-describedby="rp-auto-why"'}></label>${isAdult() ? '' : '<p class="fine" id="rp-auto-why">Needs the 18+ confirmation (Settings › Data and backup).</p>'}</section></div>`;
 }
 function reportNow() { const r = state.reportForm || {}; const text = document.getElementById('rp-text')?.value ?? r.text ?? ''; const contact = document.getElementById('rp-contact')?.value ?? r.contact ?? ''; const diag = document.getElementById('rp-diag')?.checked ?? r.diag;
   Object.assign(state.reportForm, { text, contact, diag }); if (!text.trim()) throw Error('Describe the problem first.');
@@ -2905,13 +2908,13 @@ const actions = {
   async exportBackupEnc() {
     const pass = prompt('Choose a passphrase for this backup (at least 12 characters). You need it to restore; it cannot be recovered.');
     if (pass === null) return; if (pass.length < 12) throw Error('Use a passphrase of at least 12 characters.');
-    const name = 'prvlar-backup-' + new Date().toISOString().slice(0, 10) + '-encrypted.json';
+    const name = 'prvlar-backup-' + dayKey() + '-encrypted.json';
     const how = await saveTextFile(name, JSON.stringify({ prvlarBackup: 1, ...(await encryptJSON(await exportAll(), pass)) }));
     if (how !== 'cancelled') { state.notice = `Encrypted backup saved: ${name}`; render(); }
   },
   async copyCrash() { await navigator.clipboard.writeText(crashText(crashReports())); state.notice = 'Crash reports copied. Paste them into a message if you want to share them.'; render(); },
   async exportBackup() {
-    const name = 'prvlar-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    const name = 'prvlar-backup-' + dayKey() + '.json';
     const how = await saveTextFile(name, JSON.stringify(await exportAll()));
     if (how !== 'cancelled') { state.notice = how === 'shared' ? `Backup ready: ${name}. Choose where to save it.` : `Backup saved: ${name}`; render(); }
   }
@@ -3081,7 +3084,7 @@ app.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'lm-doc') { selectDoc(t.value); return render(); }
   if (t.matches('[data-import]')) { const files = [...t.files]; t.value = ''; return run(() => importFiles(files)); }
-  if (t.dataset.pref099) { if (t.dataset.pref099 === 'ai') localStorage.setItem('prvlar-ai-consent', t.checked ? '1' : '0'); else setCrashEnabled(t.checked); return render(); }
+  if (t.dataset.pref099) { if (t.dataset.pref099 === 'age') { if (t.checked) confirmAdult(); else clearAdult(); return render(); } if (t.dataset.pref099 === 'ai') localStorage.setItem('prvlar-ai-consent', t.checked ? '1' : '0'); else setCrashEnabled(t.checked); return render(); }
   if (t.matches('[data-restore]')) { const f = t.files[0]; t.value = ''; return run(() => restoreBackup(f)); }
   if (t.id === 'docpick') { selectDoc(t.value); return render(); }
   if (t.id === 'exam-pick') { writeJSON('prvlar-exam-pick', { ...pick(), id: t.value, level: 0 }); return render(); }
@@ -3118,7 +3121,7 @@ app.addEventListener('change', e => {
   if (t.id === 'docsonly') { writeJSON('prvlar-docs-only', t.checked); return render(); }
   if (t.matches('[data-glassbg]')) { const f = t.files[0]; t.value = ''; return run(() => pickGlassBg(f)); }
   if (t.matches('[data-rpshot]')) { const f = t.files[0]; t.value = ''; if (!f) return; if (f.size > 6 * 1048576) return toast('Screenshot too big (6 MB max).', 'warn'); const fr = new FileReader(); fr.onload = () => { state.reportForm.text = document.getElementById('rp-text')?.value || state.reportForm.text; state.reportForm.shot = fr.result; render(); }; fr.readAsDataURL(f); return; }
-  if (t.id === 'rp-auto') { writeJSON('prvlar-report-auto', t.checked); return; }
+  if (t.id === 'rp-auto') { if (t.checked && !isAdult()) { t.checked = false; state.ageAsk = { what: 'send crash reports automatically' }; return render(); } writeJSON('prvlar-report-auto', t.checked); return; }
   if (t.matches('[data-smattach]')) { const fs = [...t.files]; t.value = ''; state.smPlus = false; return run(() => addAttachments(fs)); }
   if (t.matches('[data-packfile]')) { const f = t.files[0], pass = packPass(); t.value = ''; if (!f) return; return run(async () => {
     if (!state.owner) throw Error('Sign in with an owner Google account first.');

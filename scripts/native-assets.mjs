@@ -96,6 +96,8 @@ if (platform === 'android') {
     '$1\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />'));
   // Network policy (see resources/network_security_config.xml): lets the app reach an AI server on the local network.
   copyFileSync(R('resources/network_security_config.xml'), R('android/app/src/main/res/xml/network_security_config.xml'));
+  // 0.9.10: the WebView resizes for the on-screen keyboard (with @capacitor/keyboard resize: native).
+  patch(manifest, m => /windowSoftInputMode/.test(m) ? m.replace(/android:windowSoftInputMode="[^"]*"/, 'android:windowSoftInputMode="adjustResize"') : m.replace(/(<activity\b)/, '$1\n            android:windowSoftInputMode="adjustResize"'));
   if (!readFileSync(manifest, 'utf8').includes('networkSecurityConfig')) patch(manifest, s => s.replace('<application', '<application\n        android:networkSecurityConfig="@xml/network_security_config"'));
   // App version shown in Android's app info, from package.json (0.7.0 -> versionName 0.7.0, versionCode 700).
   const ver = JSON.parse(readFileSync(R('package.json'), 'utf8')).version, [maj, min, pat] = ver.split('.').map(n => parseInt(n, 10) || 0);

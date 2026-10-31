@@ -120,7 +120,7 @@ async function doSync({ interactive = false } = {}) {
     for (const [k, { v }] of Object.entries(merged.prefs || {})) if (!(p.keys && p.encrypt) && SECRET_PREFS.includes(k)) continue; else write(k, v);
     prefsSnapshot(p.keys && p.encrypt);
     const blobBytes = await syncBlobs(d);
-    return setStatus({ at: Date.now(), size: size + blobBytes, error: '', reason: '', conflicts: merged.conflicts.length, changed: Object.values(put).reduce((a, x) => a + x.length, 0) + Object.values(del).reduce((a, x) => a + x.length, 0) });
+    return setStatus({ at: Date.now(), size: size + blobBytes, error: '', reason: '', conflicts: merged.conflicts.length, changed: Object.values(put).reduce((a, x) => a + (x?.length || 0), 0) + Object.values(del).reduce((a, x) => a + (x?.length || 0), 0) });
   } catch (e) {
     if (e instanceof DriveError && e.status === 401) { token = null; }
     if (e?.reason === 'scope') { token = null; return setStatus({ error: e.message, reason: 'scope' }); }

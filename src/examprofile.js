@@ -203,7 +203,7 @@ export function profileFromAnalysis(obj, { id, name, kind = 'custom', papers = 0
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.sections)) throw Error('The AI analysis has no sections.');
   const repeated = (Array.isArray(obj.repeated) ? obj.repeated : []).map(r => ({ question: str(r?.question, 400), times: num(r?.times, 1, 999) || 2 })).filter(r => r.question).slice(0, 15);
   return normalizeProfile({
-    id, name: name || str(obj.name, 80) || 'Custom exam', kind, profileVersion: new Date().toISOString().slice(0, 10), created: Date.now(),
+    id, name: name || str(obj.name, 80) || 'Custom exam', kind, profileVersion: (d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(new Date()), created: Date.now(),
     coverage: { from: years?.[0] ?? null, to: years?.[1] ?? null, note: `Made on this device by AI analysis of ${papers} paper${papers === 1 ? '' : 's'}. Numbers are the AI's estimates; check them.` },
     pattern: { durationMin: obj.durationMin, totalMarks: obj.totalMarks, sections: obj.sections.filter(s => QTYPES.includes(s?.type) && num(s.count, 1, 500) && num(s.marks, 0.25, 100)) },
     difficulty: measured ? { easy: measured.easy, medium: measured.medium, hard: measured.hard, basis: `Measured from ${measured.questions} questions in the papers (question wording and marks).` } : obj.difficulty ? { ...obj.difficulty, basis: 'AI estimate from the papers you gave.' } : null,

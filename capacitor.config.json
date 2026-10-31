@@ -19,6 +19,10 @@
     "LocalNotifications": {
       "smallIcon": "ic_stat_atlas",
       "iconColor": "#2F6BFF"
+    },
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
     }
   }
 }

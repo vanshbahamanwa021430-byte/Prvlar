@@ -1928,6 +1928,66 @@ button, .btn, .icon-btn, .seg-btn, .list-row, .option, .tab, .side-link, .chip-b
 /* Perf (0.9.10): lite rendering on low-end devices. backdrop-filter re-blurs everything behind fixed/sticky bars and
    glass cards on every scroll frame, which is the main source of jank in older Android WebViews. */
 html.lite *, html.lite *::before, html.lite *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-html.lite[data-theme="glass"] { --surface: rgba(52, 41, 140, .94); --surface-2: rgba(66, 54, 160, .94); --chip: rgba(80, 68, 175, .95); --glass: rgba(45, 35, 120, .96); }
 html.lite .tabbar, html.lite .topbar { background: var(--surface); }
 html.lite .card { box-shadow: 0 1px 3px rgba(15, 26, 61, .12); }
+
+/* ===== 0.9.10: Glass photo background restored (regression from the 0.9.5 owner-pack split, which moved the bundled
+   photo out of the public app). Fixed, cover-fit photo (small WebP per screen size), 0.9.1 glass panels (blur 22px,
+   saturate 1.25, 1px light border, soft shadow). Blur only on cards, sidebar/dock and sheets; solid translucent fallback
+   where backdrop-filter is missing, on lite devices and with reduced transparency. Keep tests/glass0910 passing. */
+:root[data-theme="glass"] { --glass-default: url('./assets/glass/glass-bg-phone.webp'); }
+@media (min-width: 760px) { :root[data-theme="glass"] { --glass-default: url('./assets/glass/glass-bg-desktop.webp'); } }
+:root[data-theme="glass"] body::before, :root[data-theme="glass"]:not([style*="--glass-photo"]) body::before {
+  background: linear-gradient(180deg, rgba(5, 20, 14, .56) 0%, rgba(5, 20, 14, .48) 40%, rgba(5, 20, 14, .62) 100%),
+    var(--glass-photo, var(--glass-default)) center / cover no-repeat, #2E4639;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="glass"] body::before, :root[data-theme="glass"]:not([style*="--glass-photo"]) body::before {
+    background: linear-gradient(180deg, rgba(2, 10, 7, .7) 0%, rgba(2, 10, 7, .62) 40%, rgba(2, 10, 7, .74) 100%),
+      var(--glass-photo, var(--glass-default)) center / cover no-repeat, #16241D;
+  }
+}
+:root[data-theme="glass"] .card, :root[data-theme="glass"] .stat, :root[data-theme="glass"] .doc-card, :root[data-theme="glass"] .rec,
+:root[data-theme="glass"] .toggle-row, :root[data-theme="glass"] .hero.is-compact, :root[data-theme="glass"] .th-profile, :root[data-theme="glass"] .ftile,
+:root[data-theme="glass"] .sidebar, :root[data-theme="glass"] .drawer, :root[data-theme="glass"] .sheet {
+  -webkit-backdrop-filter: blur(22px) saturate(1.25); backdrop-filter: blur(22px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, .4); box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .35);
+}
+/* Nested glass would blur twice: inner cards inside a blurred panel stay translucent without their own blur. */
+:root[data-theme="glass"] .card .card, :root[data-theme="glass"] .card .toggle-row, :root[data-theme="glass"] .sheet .card { -webkit-backdrop-filter: none; backdrop-filter: none; }
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-theme="glass"] .sidebar, :root[data-theme="glass"] .drawer, :root[data-theme="glass"] .sheet { background: rgba(14, 36, 27, .94); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="glass"] { --surface: rgba(14, 36, 27, .94); --surface-2: rgba(20, 46, 35, .95); --chip: rgba(24, 52, 40, .96); --glass: rgba(14, 36, 27, .96); }
+  :root[data-theme="glass"] * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
+html.lite[data-theme="glass"] { --surface: rgba(14, 36, 27, .9); --surface-2: rgba(20, 46, 35, .92); --chip: rgba(24, 52, 40, .94); --glass: rgba(14, 36, 27, .95); }
+@media (prefers-reduced-motion: reduce) { :root[data-theme="glass"] .card, :root[data-theme="glass"] .switch { transition: none; } }
+
+/* 0.9.10 logic audit: toggles show their state in words (On/Off) next to an unambiguous pill (no 44px stretch). */
+input[type="checkbox"] + .switch { min-height: 28px; height: 28px; margin-left: 34px; }
+.toggle-row .switch::before { content: 'Off'; position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); font: 600 12.5px/1 var(--f, system-ui); color: var(--ink-3, #667); }
+.toggle-row .switch.is-on::before { content: 'On'; color: var(--ink-1, #111); }
+.switch:not(.is-on) { box-shadow: inset 0 0 0 1.5px var(--line, rgba(0, 0, 0, .25)); }
+.switch:not(.is-on) span { transform: none; }
+
+/* 0.9.10: on-screen keyboard. --kb is the keyboard overlap (src/keyboard.js); fixed bottom UI sits above it. */
+:root { --kb: 0px; }
+body, .shell { min-height: 100vh; min-height: 100dvh; }
+.sheet { bottom: var(--kb); max-height: calc(88vh - var(--kb)); max-height: calc(88dvh - var(--kb)); transition: bottom .12s ease-out; }
+@media (min-width: 760px) { .sheet { bottom: auto; } }
+.kb-open .tabbar, .kb-open .sm-fab, .kb-open .focus-pill { display: none; }
+.toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 12px + var(--kb)); }
+.ocr-bar { bottom: calc(84px + env(safe-area-inset-bottom, 0px) + var(--kb)); }
+.kb-open .sheet { padding-bottom: 12px; }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: none; } }
+/* 0.9.10: switch visuals follow the checkbox itself, so they can never disagree with the stored value between renders. */
+input[type="checkbox"]:checked + .switch { background: var(--blue); }
+input[type="checkbox"]:checked + .switch span { transform: translateX(20px); }
+input[type="checkbox"]:not(:checked) + .switch { background: var(--surface-3); }
+input[type="checkbox"]:not(:checked) + .switch span { transform: none; }
+.toggle-row input[type="checkbox"]:checked + .switch::before { content: 'On'; color: var(--ink-1, #111); }
+.toggle-row input[type="checkbox"]:not(:checked) + .switch::before { content: 'Off'; color: var(--ink-3, #667); }
+:root[data-theme="glass"] input[type="checkbox"]:checked + .switch { background: rgba(134, 239, 172, .42); }
+input[type="checkbox"]:disabled + .switch { opacity: .5; }

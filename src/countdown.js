@@ -33,9 +33,11 @@ export function buildStudyPlan({ examId = '', examTitle = '', examDate, topics =
 export function adjustPlan(plan, today) {
   if (!plan || plan.adjusted === today && plan.days.every(d => d.date >= today || d.tasks.every(t => t.done))) return plan;
   const missed = [], days = plan.days.map(d => ({ ...d, tasks: d.tasks.map(t => ({ ...t })) }));
-  for (const d of days) if (d.date < today) { missed.push(...d.tasks.filter(t => !t.done).map(t => ({ ...t, from: t.from || d.date }))); d.tasks = d.tasks.filter(t => t.done); }
   let open = days.filter(d => d.date >= today && d.date < plan.examDate);
   if (!open.length && plan.examDate >= today) { open = [{ date: today, tasks: [] }]; days.push(open[0]); }
+  // 0.9.10: after the exam date there is nowhere to move them, so missed tasks stay on their own days (no data loss).
+  if (!open.length) return { ...plan, days, adjusted: today };
+  for (const d of days) if (d.date < today) { missed.push(...d.tasks.filter(t => !t.done).map(t => ({ ...t, from: t.from || d.date }))); d.tasks = d.tasks.filter(t => t.done); }
   for (const t of missed) { if (!open.length) break; open.reduce((a, b) => b.tasks.filter(x => !x.done).length < a.tasks.filter(x => !x.done).length ? b : a).tasks.unshift(t); }
   return { ...plan, days: days.filter(d => d.tasks.length || d.date >= today), adjusted: today, moved: (plan.moved || 0) + missed.length };
 }

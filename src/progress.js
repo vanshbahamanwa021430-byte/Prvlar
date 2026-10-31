@@ -111,3 +111,6 @@ export function nextPhase(phase, cycle, { longEvery = 4 } = {}) {
   if (phase === 'focus') { const c = cycle + 1; return { phase: c % longEvery === 0 ? 'long' : 'short', cycle: c }; }
   return { phase: 'focus', cycle };
 }
+
+// 0.9.10: a test attempt without a valid percent (old or imported backups) counts as 0 instead of showing NaN%.
+export const pctOf = a => { const n = Number(a?.percent); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0; };
