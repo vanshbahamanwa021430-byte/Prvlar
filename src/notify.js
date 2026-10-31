@@ -3,25 +3,28 @@
 // Browser/Windows: the Notification API while the app is open (if allowed), otherwise nothing; the app still works.
 import { isNative } from './platform.js';
 
+// Capacitor plugins are Proxies: any property (including 'then') looks like a native method, so the plugin must
+// never be returned from an async function or awaited directly. loadPlugin() resolves to a plain { n } box instead.
 let plugin = null;
-async function native() {
-  if (!isNative()) return null;
-  if (!plugin) { try { plugin = (await import('@capacitor/local-notifications')).LocalNotifications; } catch { plugin = false; } }
-  return plugin || null;
+export async function loadPlugin(isNat = isNative, load = () => import('@capacitor/local-notifications')) {
+  if (!isNat()) return { n: null };
+  if (plugin === null) { try { const m = await load(); plugin = { n: m.LocalNotifications || null }; } catch { plugin = { n: null }; } }
+  return plugin;
 }
+export function _resetPlugin() { plugin = null; }
 
 // Notification ids must be 32-bit integers: hash the item id (focus timer uses a fixed id).
 export const FOCUS_ID = 7001;
 export function notifId(s) { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return 10000 + (Math.abs(h) % 2000000000); }
 
 export async function permission() {
-  const n = await native();
+  const { n } = await loadPlugin();
   if (n) { try { return (await n.checkPermissions()).display; } catch { return 'denied'; } }
   if (typeof Notification === 'undefined') return 'unsupported';
   return Notification.permission === 'default' ? 'prompt' : Notification.permission;
 }
 export async function askPermission() {
-  const n = await native();
+  const { n } = await loadPlugin();
   if (n) { try { return (await n.requestPermissions()).display; } catch { return 'denied'; } }
   if (typeof Notification === 'undefined') return 'unsupported';
   try { return await Notification.requestPermission(); } catch { return 'denied'; }
@@ -32,12 +35,12 @@ export async function askPermission() {
 // Returns 'granted', 'denied' or 'unsupported' (browser, iOS, older plugin).
 export function exactStatus(res) { const v = res && (res.exact_alarm || res.exactAlarm); return v === 'granted' ? 'granted' : v ? 'denied' : 'unsupported'; }
 export async function exactAlarm() {
-  const n = await native();
+  const { n } = await loadPlugin();
   if (!n || typeof n.checkExactNotificationSetting !== 'function') return 'unsupported';
   try { return exactStatus(await n.checkExactNotificationSetting()); } catch { return 'unsupported'; }
 }
 export async function askExactAlarm() {
-  const n = await native();
+  const { n } = await loadPlugin();
   if (!n || typeof n.changeExactNotificationSetting !== 'function') return 'unsupported';
   try { return exactStatus(await n.changeExactNotificationSetting()); } catch { return exactAlarm(); }
 }
@@ -58,7 +61,7 @@ function webSchedule(list) {
 
 // Replaces every planner/daily reminder with `list`: [{ id, title, body, at }] plus an optional daily repeat { hour, minute }.
 export async function scheduleReminders(list, daily) {
-  const n = await native();
+  const { n } = await loadPlugin();
   const future = list.filter(r => r.at > Date.now() + 5000).slice(0, 60);
   if (n) {
     try {
@@ -78,7 +81,7 @@ export async function scheduleReminders(list, daily) {
 
 // The focus timer's "time's up" notice, for when the app is in the background or closed.
 export async function scheduleFocusEnd(at, title, body) {
-  const n = await native();
+  const { n } = await loadPlugin();
   if (!n) return;
   try {
     await n.cancel({ notifications: [{ id: FOCUS_ID }] });

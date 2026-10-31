@@ -66,15 +66,21 @@ export function outline(doc) {
   return nodes;
 }
 
+// Sections from older saves, imports or merged documents can miss ref/title or carry non-string text: normalise them.
+export function usableSections(doc) {
+  const list = Array.isArray(doc?.sections) ? doc.sections : [];
+  return list.filter(s => s && typeof s.text === 'string' && s.text).map((s, i) => ({ ...s, ref: String(s.ref || s.title || 'Section ' + (i + 1)) }));
+}
+
 export function contextInfo(doc, limit = 22000) {
-  const secs = doc.sections.filter(s => s.text);
+  const secs = usableSections(doc);
   const total = secs.reduce((a, s) => a + s.text.length + s.ref.length + 4, 0);
   return { total, used: Math.min(total, limit), truncated: total > limit };
 }
 
 // Text sent to the AI. If the document is too long, sample evenly across sections instead of cutting off the tail.
 export function sourceContext(doc, limit = 22000) {
-  let secs = doc.sections.filter(s => s.text);
+  let secs = usableSections(doc);
   const full = secs.map(s => `[${s.ref}]\n${s.text}`).join('\n\n');
   if (full.length <= limit) return full;
   const minEach = 200;
@@ -85,6 +91,6 @@ export function sourceContext(doc, limit = 22000) {
 
 // Soft check: flags questions whose source label doesn't match any section of the document.
 export function verifySources(doc, questions) {
-  const refs = doc.sections.map(s => s.ref.toLowerCase());
-  return questions.map(q => ({ ...q, sourceVerified: refs.some(r => q.source.toLowerCase().includes(r)) }));
+  const refs = usableSections(doc).map(s => s.ref.toLowerCase());
+  return (questions || []).map(q => ({ ...q, sourceVerified: refs.some(r => String(q.source || '').toLowerCase().includes(r)) }));
 }
