@@ -14,18 +14,18 @@ const MIN_SOURCE_CHARS = 2000;
 // key's prefix, so the user just pastes whichever key they have (Gemini and Groq have free tiers).
 // Gemini uses the "-latest" alias so the app keeps working when Google renames Flash-Lite versions.
 export const PROVIDERS = {
-  gemini: { name: 'Google Gemini (free tier)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-flash-lite-latest', temperature: null },
-  groq: { name: 'Groq (free tier)', endpoint: 'https://api.groq.com/openai/v1/chat/completions', model: 'openai/gpt-oss-120b', temperature: 0.2 },
-  openai: { name: 'OpenAI', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', temperature: 0.2 }
+  gemini: { name: 'Google AI key (free tier)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-flash-lite-latest', temperature: null },
+  groq: { name: 'Fast AI key (free tier)', endpoint: 'https://api.groq.com/openai/v1/chat/completions', model: 'openai/gpt-oss-120b', temperature: 0.2 },
+  openai: { name: 'Paid AI key', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', temperature: 0.2 }
 };
 
 // Self-hosted OpenAI-compatible routers that stack free tiers (you add the provider keys in their dashboard).
 export const SERVER_PRESETS = {
-  omniroute: { label: 'OmniRoute server', url: 'http://localhost:20128/v1', model: 'auto' },
+  omniroute: { label: 'AI router server', url: 'http://localhost:20128/v1', model: 'auto' },
   // Google's LiteRT-LM (the engine behind AI Edge Gallery) running Gemma offline on a PC: `litert-lm serve`.
   // Model string is "<imported id>,<cpu|gpu>,<context tokens>"; 16k tokens fits a full exam prompt and reply.
-  litertlm: { label: 'Google LiteRT-LM / Gemma (offline, on your PC)', url: 'http://localhost:9379/v1', model: 'gemma,cpu,16384' },
-  custom: { label: 'Custom endpoint (OpenAI-compatible)', url: '', model: 'auto' }
+  litertlm: { label: 'Offline model on your PC (no key)', url: 'http://localhost:9379/v1', model: 'gemma,cpu,16384' },
+  custom: { label: 'Custom endpoint (standard chat API)', url: '', model: 'auto' }
 };
 // 0.9.8 no-key option: the owner's Gemini key stays in a small proxy (Google Apps Script web app, docs in proxy/,
 // or a Cloudflare Worker); the app only knows its URL and a public app token. Set at build time
@@ -67,6 +67,8 @@ export async function proxyAction(action, device, data = {}, { timeout = 20000, 
     return { status: Number(j.status) || 502, body: j.body ?? {} };
   } catch (e) { return { status: 0, body: { error: { message: String(e?.message || e) } } }; } finally { clearTimeout(t); }
 }
+// 0.9.10: whether problem/AI-answer reports can reach the owner right now (proxy URL configured).
+export const reportsConfigured = () => !!FREE.url && isGas(FREE.url);
 export const isFreeLimit = e => /PRVLAR_LIMIT/.test(String(e?.message || e || ''));
 
 // Plain http is only allowed to this device or the local network (private IPv4 ranges, localhost, *.local).
@@ -450,7 +452,7 @@ export async function draftSkill(request, ai) {
 // Web search with Gemini's Google Search grounding (native API; the OpenAI-compatible endpoint has no grounding).
 // Returns { text, sources: [{ title, url }] }. Throws when the key is not a Gemini key.
 export async function webSearchAnswer(key, question, opts = {}) {
-  if (!/^AIza/.test(key || '')) throw Object.assign(Error('Web search needs a Google Gemini key.'), { code: 'NO_GROUNDING' });
+  if (!/^AIza/.test(key || '')) throw Object.assign(Error('Web search needs a free Google AI key (starts with AIza).'), { code: 'NO_GROUNDING' });
   // "-latest" aliases follow Google's current models; the lite model is the fallback if the main one is unavailable.
   const models = opts.model ? [opts.model] : ['gemini-flash-latest', 'gemini-flash-lite-latest'];
   for (let i = 0; ; i++) { try { return await webSearchOnce(key, question, { ...opts, model: models[i] }); } catch (e) { if (e.code !== 'MODEL' || i >= models.length - 1) throw e; } }

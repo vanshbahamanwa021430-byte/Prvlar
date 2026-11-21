@@ -1,14 +1,14 @@
 // Pure helpers (no DOM, no third-party imports) so they can be unit-tested in Node.
 const MD = /^(#{1,6})\s+(\S.*)$/;
 
-export function headingOf(line, markdownOnly = false) {
+export function headingOf(line, markdownOnly = false, ctx = null) {
   const t = line.trim();
   if (!t || t.length > 90) return null;
   const m = t.match(MD);
   if (m) return { level: m[1].length, title: m[2].replace(/\s#+\s*$/, '').trim() };
   if (markdownOnly) return null;
   const n = t.match(/^(\d+(?:\.\d+){0,3})[.)]?\s+([A-Z].{2,}[^.:;,!?])$/);
-  if (n && t.length <= 80) return { level: n[1].split('.').length, title: t };
+  if (n && t.length <= 80 && !ctx?.listItem?.(n[1])) return { level: n[1].split('.').length, title: t };
   if (/^(chapter|unit|part|section|module|lesson)\s+[\w.-]+/i.test(t) && t.length <= 80 && !/[.!?]$/.test(t)) return { level: 1, title: t };
   if (t.length >= 4 && t.length <= 60 && /^[A-Z][A-Z0-9 ,:&'’()\/-]+$/.test(t) && /[A-Z]{3}/.test(t)) return { level: 2, title: t };
   return null;
@@ -32,16 +32,24 @@ export function splitSections(text, { maxPart = 1800 } = {}) {
   // 0.9.10: a short title-like line on its own (blank line before it or start of file, and a blank line or a longer
   // sentence after it) is a heading too, e.g. "Newton laws" at the top of a plain-text note.
   const titleLike = t => t.length >= 2 && t.length <= 60 && t.split(/\s+/).length <= 8 && /^\p{Lu}/u.test(t) && !/[.,;:!?…]$/.test(t) && !/^[-*•]/.test(t);
+  const ANSWER = /^(yes|no|true|false|ok|okay|maybe|none|correct|wrong)$/i;
   const plainHead = i => {
     if (markdownOnly) return null;
     const t = lines[i].trim(); if (!titleLike(t)) return null;
     const prev = i === 0 ? '' : lines[i - 1].trim(); if (prev) return null;
+    // 0.9.10: a one-word reply ("Yes") or a line answering a question above it is body text, not a heading.
+    if (ANSWER.test(t) || (!/\s/.test(t) && t.length < 4)) return null;
+    const before = lines.slice(0, i).map(x => x.trim()).filter(Boolean).pop() || ''; if (/\?$/.test(before)) return null;
     const next = (lines[i + 1] || '').trim(), after = lines.slice(i + 1).map(x => x.trim()).find(Boolean) || '';
     if (!after) return null;
     return !next || (next.length >= Math.max(30, t.length * 2) && /[.!?]$/.test(next)) ? { level: 1, title: t } : null;
   };
+  // 0.9.10: consecutive numbered lines at the same depth ("1. …" then "2. …" with no text between) are a list, not chapters.
+  const NUM = /^(\d+(?:\.\d+){0,3})[.)]?\s+\S/;
+  const depthAt = j => { const m = (lines[j] || '').trim().match(NUM); return m ? m[1].split('.').length : 0; };
+  const listCtx = i => ({ listItem: num => { const d = num.split('.').length; return depthAt(i - 1) === d || depthAt(i + 1) === d; } });
   for (const [i, line] of lines.entries()) {
-    const h = headingOf(line, markdownOnly) || plainHead(i);
+    const h = headingOf(line, markdownOnly, listCtx(i)) || plainHead(i);
     if (h) { headings++; open(h.title, h.level); continue; }
     const t = line.trim();
     if (!t) { if (cur && cur.text && !cur.text.endsWith('\n\n')) cur.text += '\n'; continue; }

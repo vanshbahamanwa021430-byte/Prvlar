@@ -48,7 +48,7 @@ export function makeAttempt(documentId, questions, answers, startedAt, endedAt, 
   const earned = grades.reduce((a, g) => a + g.awarded, 0);
   return {
     id: uuid(), documentId, documentName, questions, answers, startedAt, submittedAt: endedAt, grades, total, earned,
-    percent: total ? Math.round(100 * earned / total) : 0,
+    percent: total ? Math.max(0, Math.round(100 * earned / total)) : 0,   // 0.9.10: same rule as manual re-marking (never below 0%)
     provisional: grades.some(g => g.method === 'AI provisional' || g.method === 'self assessment pending')
   };
 }

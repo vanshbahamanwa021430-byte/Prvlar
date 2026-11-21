@@ -1,6 +1,6 @@
 // On-device OCR for scanned PDFs and photos (tesseract.js, Apache-2.0). Engine, worker and English data ship
 // inside the app under /ocr/, so it works offline. One shared worker; progress goes to a listener; cancellable.
-import { createWorker } from 'tesseract.js';
+// 0.9.10 perf: the OCR engine's loader is fetched on first scan, not at app start.
 
 const BASE = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || './';
 const abs = p => new URL(BASE + p, location.href).href;
@@ -10,10 +10,10 @@ export const cancelOcr = () => { cancelled = true; };
 export const needsOcr = (text, pages = 1) => String(text || '').replace(/\s+/g, '').length < Math.max(60, 40 * pages);
 
 function worker() {
-  workerP ??= createWorker('eng', 1, {
+  workerP ??= import('tesseract.js').then(({ createWorker }) => createWorker('eng', 1, {
     workerPath: abs('ocr/worker.min.js'), corePath: abs('ocr/'), langPath: abs('ocr/'), gzip: false, cacheMethod: 'none',
     workerBlobURL: false, logger: m => { if (m.status === 'recognizing text' && cur) listener({ ...cur, pagePct: m.progress }); }
-  }).catch(e => { workerP = null; throw e; });
+  })).catch(e => { workerP = null; throw e; });
   return workerP;
 }
 let cur = null;

@@ -55,7 +55,7 @@ export function errorEntries(attempts) {
     for (const q of a.questions || []) {
       const g = grades.get(q.id);
       if (!g || g.method === 'self assessment pending') continue;     // not marked yet
-      if ((g.awarded || 0) >= q.marks) continue;
+      if ((Number(g.awarded) || 0) >= (Number(q.marks) || 1)) continue;   // 0.9.10: a question without marks counts as 1
       out.push({ key: `${a.id}:${q.id}`, attemptId: a.id, documentId: a.documentId, documentName: a.documentName || '', at: a.submittedAt || 0, question: q, answer: (a.answers || {})[q.id], awarded: g.awarded || 0 });
     }
   }

@@ -72,7 +72,7 @@ test('retries without JSON mode when a model rejects it', async () => {
 });
 test('free-tier rate limit gives a clear message', async () => {
   globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => ([{ error: { message: 'Resource exhausted' } }]) });
-  await assert.rejects(() => explainSection('T', 'x', 'AIza'), /429.*Resource exhausted.*Gemini.*limit reached/);
+  await assert.rejects(() => explainSection('T', 'x', 'AIza'), /429.*Resource exhausted.*Google AI key.*limit reached/);
 });
 
 test('self-hosted router: address normalised, model "auto", key optional', async () => {
@@ -111,7 +111,7 @@ test('connection check sends no document text and reports the service', async ()
   let body;
   globalThis.fetch = async (url, opts) => { body = JSON.parse(opts.body); return reply({ ok: true }); };
   const r = await testConnection('AIzaKey');
-  assert.equal(r.ok, true); assert.match(r.name, /Gemini/);
+  assert.equal(r.ok, true); assert.match(r.name, /Google AI key/);
   assert.ok(JSON.stringify(body.messages).length < 300);
   assert.match(describeAI({ key: '', server: { url: 'localhost:9379' } }), /your AI server \(http:\/\/localhost:9379\/v1\)/);
   assert.equal(describeAI(''), '');

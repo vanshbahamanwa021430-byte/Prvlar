@@ -28,11 +28,11 @@ test('pickChatModel skips speech/guard models and prefers known chat models', ()
 });
 test('bad key: Groq 401 keeps the provider message and the friendly hint', async () => {
   globalThis.fetch = async () => json(401, { error: { message: 'Invalid API Key' } });
-  await assert.rejects(testConnection('gsk_bad'), e => /Invalid API Key\. Groq \(free tier\) rejected the API key\. Check it was copied completely\./.test(e.message));
+  await assert.rejects(testConnection('gsk_bad'), e => /Invalid API Key\. Fast AI key \(free tier\) rejected the API key\. Check it was copied completely\./.test(e.message));
 });
 test('bad key: Gemini 400 "API key not valid" is treated as an invalid key', async () => {
   globalThis.fetch = async () => json(400, [{ error: { message: 'API key not valid. Please pass a valid API key.' } }]);
-  await assert.rejects(testConnection('AIzaBAD'), e => /Google Gemini \(free tier\) rejected the API key\. Check it was copied completely/.test(e.message));
+  await assert.rejects(testConnection('AIzaBAD'), e => /Google AI key \(free tier\) rejected the API key\. Check it was copied completely/.test(e.message));
   assert.ok(isBadKeyResponse(400, 'Please pass a valid API key')); assert.ok(!isBadKeyResponse(400, 'Bad JSON')); assert.ok(isBadKeyResponse(403, ''));
 });
 test('exam plan prompt restricts questions to the syllabus subjects', () => {

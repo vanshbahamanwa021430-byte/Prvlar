@@ -54,7 +54,7 @@ export async function readAttachment(file, { parseFile, JSZip, toDataURL } = {})
   if (kind === 'csv' || kind === 'text') return { ...base, text: clip(await file.text()) };
   if (kind === 'audio') {
     const ext = (file.name.split('.').pop() || '').toLowerCase(), fmt = ext === 'wav' || /wav/.test(file.type) ? 'wav' : ext === 'mp3' || /mpeg|mp3/.test(file.type) ? 'mp3' : '';
-    if (fmt && file.size <= MAX_IMAGE && toDataURL) { const audio = await toDataURL(file); return { ...base, audio, note: 'Audio attached: Smarty listens and can transcribe it (Gemini key or Prvlar free).' }; }
+    if (fmt && file.size <= MAX_IMAGE && toDataURL) { const audio = await toDataURL(file); return { ...base, audio, note: 'Audio attached: Smarty listens and can transcribe it (Google AI key or Prvlar free).' }; }
     return { ...base, note: fmt && file.size > MAX_IMAGE ? `Audio over ${MAX_IMAGE / 1048576} MB: trim it, or paste a transcript.` : fmt ? 'Audio could not be read on this device; paste a transcript.' : 'Smarty can listen to MP3 or WAV audio. Convert this file to MP3, or paste a transcript.' };
   }
   const bytes = new Uint8Array(await file.arrayBuffer());

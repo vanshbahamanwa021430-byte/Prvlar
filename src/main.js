@@ -71,8 +71,7 @@ import { weeklyReport, nextWeeklyAt } from './weekly.js';
 import { recognitionSupported, recordingSupported, listen as voiceListen, record as voiceRecord } from './voice.js';
 import { readAttachment, attachmentBlock, MAX_FILES } from './attach.js';
 import { SKILLS_KEY, normalizeSkill, upsertSkill, removeSkill, parseSlash, suggestSkill, skillPrompt } from './skills.js';
-import { draftSkill, webSearchAnswer, proxyAction } from './ai.js';
-import JSZip from 'jszip';
+import { draftSkill, webSearchAnswer, proxyAction, reportsConfigured } from './ai.js';
 import { buildReport, allowReport, issueUrl, mailtoUrl, postReport, reportText, parseCsv } from './report.js';
 
 // Reaching this line means the device's browser engine could run the app (see public/compat.js).
@@ -195,7 +194,7 @@ function onboardingHTML() {
   const step = state.onStep || 0;
   const body = step === 0 ? `<span class="ob-art">${logo()}</span><h1>Welcome to Prvlar</h1><p>Turn your notes into a study map, practise with tests made for you, and ask Smarty when you’re stuck.</p><label class="field"><span>What should we call you?</span><input class="input" id="ob-name" value="${esc(userName())}" placeholder="Your name (optional)" autocomplete="nickname" maxlength="40"></label><label class="field"><span>What do you study?</span><select class="input select" id="ob-stream"><option value="">Choose (optional)</option>${STREAMS.map(([v, l]) => `<option value="${v}"${userStream() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`
     : step === 1 ? `<span class="ob-art">${icon('type', 44)}</span><h1>Make it comfortable</h1><p>Choose a text size. You can change this and the theme any time in Settings.</p>${uiSizeSeg()}`
-    : `<span class="ob-art">${icon('lock', 44)}</span><h1>Your study stays with you</h1><p>Documents and progress are saved only on this device. AI features use your own free Gemini or Groq key (or your own server); you can add it now or later.</p>${ED.obAi()}`;
+    : `<span class="ob-art">${icon('lock', 44)}</span><h1>Your study stays with you</h1><p>Documents and progress are saved only on this device. AI features use your own free AI key (or your own server); you can add it now or later.</p>${ED.obAi()}`;
   return `<div class="onboard" role="dialog" aria-modal="true" aria-label="Welcome"><div class="ob-card card">${body}<div class="ob-dots" aria-hidden="true">${[0, 1, 2].map(i => `<i class="${i === step ? 'is-on' : ''}"></i>`).join('')}</div><div class="ob-acts">${step ? '<button class="btn outline" data-action="obBack">Back</button>' : '<button class="btn outline" data-action="obDone">Skip</button>'}${step < 2 ? '<button class="btn primary" data-action="obNext">Next</button>' : '<button class="btn outline" data-action="obKey">Add AI key</button><button class="btn primary" data-action="obDone">Start</button>'}</div></div></div>`;
 }
 const saveView = () => writeJSON('prvlar-view', { zoom: state.zoom, layout: state.layout });
@@ -1091,6 +1090,7 @@ function gridSheetHTML() {
 }
 
 function ringSVG(p, size = 168, stroke = 14, extra = '') {
+  p = pctOf({ percent: p });                                             // 0.9.10: never NaN% or over 100
   const r = (size - stroke) / 2, c = 2 * Math.PI * r, band = p >= 70 ? 'good' : p >= 40 ? 'mid' : 'low';
   return `<svg class="ring ${band} ${extra}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${p} percent"><circle class="track" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}"/><circle class="val" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - p / 100)).toFixed(2)}"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="central">${p}%</text></svg>`;
 }
@@ -1172,28 +1172,28 @@ ${thread.length ? '' : `<div class="prompts">${prompts.map(([p, ic]) => `<button
 ${docsOnlyToggle()}<p class="fine">Uses ${esc(aiName())}. Text from this document is sent.</p>`}</section></div>`;
 }
 
-const FB_NAME = { gemini: 'Google Gemini', groq: 'Groq', custom: 'Custom endpoint' };
+const FB_NAME = { gemini: 'Google AI key (AIza…)', groq: 'Fast AI key (gsk_…)', custom: 'Custom endpoint' };
 function fallbackHTML() {
   const f = state.fb;
   return `<details class="fb-box"${f.on ? ' open' : ''}><summary><b>Backup services (fallback)</b></summary>
 <label class="toggle-row"><span><b>If a service fails, try the next one</b><span>Used when a service can’t be reached, rejects the key or hits its limit.</span></span><input type="checkbox" id="fb-on"${f.on ? ' checked' : ''}><span class="switch${f.on ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 <ol class="fb-order">${f.order.map((id, i) => `<li><span>${i + 1}. ${FB_NAME[id]}</span>${i ? `<button class="icon-btn soft" data-fbup="${i}" aria-label="Move ${FB_NAME[id]} up">↑</button>` : ''}</li>`).join('')}</ol>
-<label class="field"><span>Gemini key (backup)${packMark(f.gemini)}</span><input class="input" id="fb-gemini" type="password" value="${esc(f.gemini)}" placeholder="AIza…" autocomplete="off"></label>
-<label class="field"><span>Groq key (backup)${packMark(f.groq)}</span><input class="input" id="fb-groq" type="password" value="${esc(f.groq)}" placeholder="gsk_…" autocomplete="off"></label>
-<label class="field"><span>Custom endpoint (OpenAI-compatible)${packMark(f.url)}</span><input class="input" id="fb-url" ${PACK_KEYS.has(f.url) ? 'type="password" ' : ''}value="${esc(f.url)}" placeholder="http://192.168.1.20:3001/v1" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+<label class="field"><span>Google AI key, starts with AIza (backup)${packMark(f.gemini)}</span><input class="input" id="fb-gemini" type="password" value="${esc(f.gemini)}" placeholder="AIza…" autocomplete="off"></label>
+<label class="field"><span>Fast AI key, starts with gsk_ (backup)${packMark(f.groq)}</span><input class="input" id="fb-groq" type="password" value="${esc(f.groq)}" placeholder="gsk_…" autocomplete="off"></label>
+<label class="field"><span>Custom endpoint (standard chat API)${packMark(f.url)}</span><input class="input" id="fb-url" ${PACK_KEYS.has(f.url) ? 'type="password" ' : ''}value="${esc(f.url)}" placeholder="http://192.168.1.20:3001/v1" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
 <div class="row"><label class="field"><span>Endpoint key (optional)</span><input class="input" id="fb-key" type="password" value="${esc(f.key)}" autocomplete="off"></label><label class="field"><span>Model</span><input class="input" id="fb-model" value="${esc(f.model)}" placeholder="auto" autocomplete="off" autocapitalize="off"></label></div>
 <p class="fine">Plain http:// works only for this device and your local network; use https:// for internet addresses.${ED.serverNote}</p></details>`;
 }
 const SERVER_HELP = {
-  litertlm: 'Runs Google’s Gemma model on your own PC, offline and free, so no key is needed. On the PC run <code>litert-lm serve --host 0.0.0.0</code> (see the README). Use <code>gpu</code> instead of <code>cpu</code> in the model if your PC has a supported graphics card.',
-  omniroute: 'Start OmniRoute and connect your free provider keys in its dashboard. Paste the server’s own API key below. Avoid routing paid subscriptions through it.',
-  custom: 'Any server that speaks the OpenAI chat-completions format (/v1/chat/completions) works, on your PC or your network. Add its key if it needs one, then tap Fetch models or keep “auto”.'
+  litertlm: 'Runs a free open model on your own PC, offline and free, so no key is needed. On the PC run <code>litert-lm serve --host 0.0.0.0</code> (see the README). Use <code>gpu</code> instead of <code>cpu</code> in the model if your PC has a supported graphics card.',
+  omniroute: 'Start the router and connect your free provider keys in its dashboard. Paste the server’s own API key below. Avoid routing paid subscriptions through it.',
+  custom: 'Any server that speaks the standard chat-completions format (/v1/chat/completions) works, on your PC or your network. Add its key if it needs one, then tap Fetch models or keep “auto”.'
 };
 function viewSettings() {
   const server = usingServer(), p = preset();
-  const opts = [['cloud', 'Gemini or Groq key (free), or OpenAI'], ...Object.entries(SERVER_PRESETS).map(([k, v]) => [k, v.label + (SELF_HOSTED.includes(k) ? ' (self-hosted)' : '')])];
+  const opts = [['cloud', 'Your own AI key (free or paid)'], ...Object.entries(SERVER_PRESETS).map(([k, v]) => [k, v.label + (SELF_HOSTED.includes(k) ? ' (self-hosted)' : '')])];
   const port = (p.url.match(/:(\d+)\//) || [null, '3001'])[1];
-  const sub = server ? `Connect to your ${SERVER_PRESETS[state.ai.mode]?.brand ? SERVER_PRESETS[state.ai.mode].brand : state.ai.mode === 'omniroute' ? 'OmniRoute' : state.ai.mode === 'litertlm' ? 'LiteRT-LM (Gemma)' : 'AI'} service` : 'Connect a free Gemini or Groq key, or OpenAI';
+  const sub = server ? `Connect to your ${SERVER_PRESETS[state.ai.mode]?.brand ? SERVER_PRESETS[state.ai.mode].brand : state.ai.mode === 'omniroute' ? 'AI router' : state.ai.mode === 'litertlm' ? 'offline model' : 'AI'} service` : 'Connect your own AI key (free or paid)';
   const conn = state.conn ? `<div class="conn-box ${state.conn.ok ? 'ok' : 'err'}" role="status">${icon(state.conn.ok ? 'checkCircle' : 'alert', 22)}<div><b>${state.conn.ok ? 'Connected' : 'Not connected'}</b><span>${esc(state.conn.text)}</span></div></div>` : '';
   const theme = [['system', 'Device', 'Follows your phone'], ['light', 'Light', 'Bright and clear'], ['dark', 'Dark', 'Navy, easy at night'], ['aesthetic', 'Aesthetic', 'Soft pastels'], ['anime', 'Anime', 'Pink, purple and cyan'], ['glass', 'Glass', 'Frosted glass'], ['oldmoney', 'Old Money', 'Navy, ivory and gold'], ['vintage', 'Vintage', 'Stickers and paper'], ['royal', 'Royal', 'Maroon and gold'], ['royal-ivory', 'Royal Ivory', 'Ivory and gold, for daytime']];
   const rd = state.reading;
@@ -1219,7 +1219,7 @@ ${server ? `<label class="field"><span>Model</span><div class="composer"><input 
 <div class="conn-row"><span class="conn-label">${icon('plug', 20)}Test connection</span><button class="btn primary sm" data-action="testConn"${state.busy ? ' disabled' : ''}>${state.busy === 'conn' ? '<span class="spin"></span>Testing' : 'Test'}</button></div>
 ${conn}
 <div class="help">${server ? `<p>${SERVER_HELP[state.ai.mode] || SERVER_HELP.custom}</p><p>Server on this device: keep <code>localhost</code>. On another computer: use its Wi-Fi address, for example <code>http://192.168.1.20:${port}/v1</code>.</p>`
-    : '<p>Free keys: <b>Google Gemini</b> from aistudio.google.com/apikey (starts with AIza) or <b>Groq</b> from console.groq.com/keys (starts with gsk_). Paid: <b>OpenAI</b> (starts with sk-).</p><p>Free tiers may use what you send to improve their models, so avoid confidential documents on a free key.</p>'}</div>
+    : '<p>Free key: from Google at aistudio.google.com/apikey (starts with AIza). Keys starting with gsk_ (free) or sk- (paid) from other supported providers also work.</p><p>Free tiers may use what you send to improve their models, so avoid confidential documents on a free key.</p>'}</div>
 ${fallbackHTML()}
 <p class="fine with-icon">${icon('lock', 15)}${state.remember ? 'Your key stays on this device and is sent only to the AI service you chose.' : 'Your key is forgotten when you close the app.'}</p></section>
 <section class="card" aria-labelledby="runner-h"><h2 class="h2" id="runner-h">Code runner (optional)</h2><p class="fine">Smarty Code runs JavaScript and Python on this device. For C, C++ and Java you can add your own Judge0-compatible runner; your code is sent to it. Without one, Smarty does a clearly labelled simulated dry run.</p><label class="field"><span>Runner URL</span><input class="input" id="runner-url" type="url" inputmode="url" placeholder="https://your-runner.example.com" value="${esc(runnerCfg().url)}"></label><label class="field"><span>Key (optional)</span><input class="input" id="runner-key" type="password" autocomplete="off" value="${esc(runnerCfg().key)}"></label></section>
@@ -1232,7 +1232,7 @@ ${fallbackHTML()}
 <label class="toggle-row"><span><b>Online AI allowed</b><span>${localStorage.getItem('prvlar-ai-consent') === '1' ? 'On: AI features may send the needed text to your AI service. Turn off to keep everything on this device.' : 'Off: nothing is sent to an AI service. Prvlar asks before any AI feature is used.'}</span></span><input type="checkbox" data-pref099="ai"${localStorage.getItem('prvlar-ai-consent') === '1' ? ' checked' : ''}><span class="switch${localStorage.getItem('prvlar-ai-consent') === '1' ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 <label class="toggle-row"><span><b>Save crash reports</b><span>${crashEnabled() ? 'On: errors are saved on this device, with keys and emails removed. Nothing is sent unless “Send crash reports automatically” (Send a suggestion) is on.' : 'Off (the default): nothing is saved. Turn on to keep errors on this device for troubleshooting. Nothing is sent unless “Send crash reports automatically” is on.'}</span></span><input type="checkbox" data-pref099="crash"${crashEnabled() ? ' checked' : ''}><span class="switch${crashEnabled() ? ' is-on' : ''}" aria-hidden="true"><span></span></span></label>
 ${crashEnabled() ? (crashReports().length ? `<div class="row"><button class="btn outline sm" data-action="copyCrash">${icon('copy', 16)}Copy ${plural(crashReports().length, 'crash report')}</button></div>` : '<p class="fine">No crash reports saved.</p>') : ''}
-<div class="danger-zone"><p class="fine"><b>Delete all data on this device</b>: documents, notes, flashcards, tests, planner, progress, Smarty chats, settings, keys and reports. ${account() ? 'Your Google Drive copy is not touched (use Account › Delete cloud data for that).' : ''}</p><button class="btn ghost danger" data-action="wipeAll">${icon('trash', 18)}Delete all data</button></div></section>
+<div class="danger-zone"><p class="fine"><b>Delete all data on this device</b>: documents, notes, flashcards, tests, planner, progress, Smarty chats, settings, keys and reports. Reports already sent to the developer are not deleted by this; ask by email to have them removed. ${account() ? 'Your Google Drive copy is not touched (use Account › Delete cloud data for that).' : ''}</p><button class="btn ghost danger" data-action="wipeAll">${icon('trash', 18)}Delete all data</button></div></section>
 <section class="card about"><span class="about-logo">${logo()}</span><div><b>Prvlar ${esc(VERSION)}</b><p class="fine">Running on this ${where}. Apps for Android 6 or later and Windows 10 or later. On iPhone, iPad and other devices, use it in a current browser (it can be added to the Home Screen); there is no App Store app yet.</p><button class="link-btn" data-view="about">${icon('info', 16)}About us and suggestions</button></div></section>
 <section class="card" aria-labelledby="legal-h"><h2 class="h2" id="legal-h">About and legal</h2><div class="row"><button class="btn outline sm" data-view="about">About us</button><button class="btn outline sm" data-view="privacy">Privacy policy</button><button class="btn outline sm" data-view="terms">Terms</button><button class="btn outline sm" data-view="licenses">Licences</button></div></section>
 </div>`;
@@ -1693,7 +1693,7 @@ const focusPill = () => { const r = state.focusRun; if (r.phase === 'idle' || st
 function viewFocus() {
   const r = state.focusRun, p = state.focusPrefs, ph = r.phase === 'idle' ? 'focus' : r.phase, left = focusLeft(), total = phaseMs(ph);
   const R = 92, c = 2 * Math.PI * R, t = today();
-  const todayFocus = state.sessions.filter(s => s.day === t && s.kind === 'focus').reduce((a, s) => a + s.minutes, 0);
+  const todayFocus = state.sessions.filter(s => s.day === t && s.kind === 'focus').reduce((a, s) => a + (Number(s.minutes) || 0), 0);
   const num = (k, label, min, max) => `<label class="field"><span>${label}</span><input class="input" type="number" min="${min}" max="${max}" data-focus="${k}" value="${p[k]}"></label>`;
   return `${backHead('Focus timer')}<div class="view narrow focus-view">
 <div class="seg phase-seg">${Object.entries(PHASES).map(([k, l]) => `<button class="seg-btn${ph === k ? ' is-on' : ''}" data-phase="${k}"${r.running ? ' disabled' : ''}>${l}</button>`).join('')}</div>
@@ -1808,7 +1808,7 @@ function viewProgress() {
   const perDoc = state.docs.map(d => ({ d, m: state.sessions.filter(x => x.documentId === d.id).reduce((a, x) => a + x.minutes, 0) })).filter(x => x.m > 0).sort((a, b) => b.m - a.m);
   const general = state.sessions.filter(x => !x.documentId || !docById(x.documentId)).reduce((a, x) => a + x.minutes, 0);
   const maxDoc = Math.max(1, ...perDoc.map(x => x.m), general);
-  const tests = state.attempts.slice(0, 12).reverse(), avg = state.attempts.length ? Math.round(state.attempts.reduce((a, x) => a + x.percent, 0) / state.attempts.length) : null;
+  const tests = state.attempts.slice(0, 12).reverse(), avg = state.attempts.length ? Math.round(state.attempts.reduce((a, x) => a + pctOf(x), 0) / state.attempts.length) : null;
   const correct = state.days.reduce((a, d) => a + (d.correct || 0), 0), weak = weakAll().slice(0, 6), recs = recommendations(), earned = new Set(earnedBadges(s).map(b => b.id));
   return `${backHead('Progress')}<div class="view narrow progress">
 ${themeBanner(s)}
@@ -2195,7 +2195,7 @@ async function smartySend(q) {
       const gk = state.key.trim().startsWith('AIza') ? state.key.trim() : (state.fb?.gemini || '').trim();
       try { const w = await webSearchAnswer(gk, q, { system: 'You are Smarty, a friendly tutor. Answer clearly for a student, using the web results. Use Markdown.', extra: extra + (hits.length ? '\nSTUDENT NOTES (untrusted):\n' + hits.map(h => h.text).join('\n').slice(0, 6000) : '') });
         r = { text: w.text, sources: [], web: w.sources, topic: '', general: true }; }
-      catch (e) { webNote = e.code === 'NO_GROUNDING' ? 'Web search needs a free Gemini key, so this was answered without searching.' : e.code === 'RATE' ? 'Google web search isn’t available on this key’s free quota right now, so this was answered without searching.' : `Web search failed (${e.message}), so this was answered without searching.`; }
+      catch (e) { webNote = e.code === 'NO_GROUNDING' ? 'Web search needs a free Google AI key (starts with AIza), so this was answered without searching.' : e.code === 'RATE' ? 'Google web search isn’t available on this key’s free quota right now, so this was answered without searching.' : `Web search failed (${e.message}), so this was answered without searching.`; }
     }
     if (!r) r = await smartyAnswer(q, hits, ai, { level: tutorLevel(state.learner, q), hint: profileHint(state.learner), history: th.slice(0, -1), docsOnly: docsOnly(), extra, images });
     th.push({ role: 'ai', text: r.text, sources: r.sources, topic: r.topic, general: r.general, web: r.web, webNote, skill: skill?.title });
@@ -2242,7 +2242,7 @@ async function addAttachments(files) {
   for (const f of [...files]) {
     if (list.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} files per message.`, 'warn'); break; }
     const tmp = { id: Math.random().toString(36).slice(2), name: f.name, size: f.size, kind: 'file', busy: true }; list.push(tmp); render();
-    try { Object.assign(tmp, await readAttachment(f, { parseFile, JSZip, toDataURL: x => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(Error('Could not read the picture.')); r.readAsDataURL(x); }) }), { busy: false }); }
+    try { Object.assign(tmp, await readAttachment(f, { parseFile, JSZip: (await import('jszip')).default, toDataURL: x => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(Error('Could not read the picture.')); r.readAsDataURL(x); }) }), { busy: false }); }
     catch (e) { tmp.busy = false; tmp.error = e.message || 'Could not read this file.'; }
     render();
   }
@@ -2552,7 +2552,7 @@ const actions = {
     const cat = document.querySelector('input[name=airep-cat]:checked')?.value, note = document.getElementById('airep-note')?.value || '';
     const rep = addReport(makeReport({ category: cat, note, ...state.aiRep, version: VERSION })); state.aiRep = null; repEnqueue(rep.id);
     state.notice = 'Sending your report…'; render();
-    repRetry().then(r => { state.notice = r.left ? 'Report saved. It will be sent when you are back online.' : 'Report sent. Thank you.'; render(); }).catch(() => {});
+    repRetry().then(r => { state.notice = !r.left ? 'Report sent. Thank you.' : !reportsConfigured() ? 'Report saved on this device. Sending to the developer is not switched on in this build yet; it will be sent automatically once it is.' : navigator.onLine === false ? 'Report saved. It will be sent when you are back online.' : 'Report saved. Sending failed for now; it will be retried automatically.'; render(); }).catch(() => {});
   },
   async relApprove() {
     if (!state.owner) throw Error('Only the owner can approve a release.');
@@ -2574,7 +2574,7 @@ const actions = {
     state.notice = `Smarty linked ${plural(edges.length, 'prerequisite')} (loops removed).`; render();
   },
   async resetPrereqs() { const doc = curDoc(); if (!doc) return; doc.prereqs = []; await saveDocument(doc); state.docs = await getDocuments(); render(); },
-  drawerOpen() { state.drawer = true; state.drawerQ = ''; drawerJustOpened = true; loadConvs().then(() => { if (state.drawer) render(); }).catch(() => {}); render(); },
+  drawerOpen() { state.drawer = true; state.drawerQ = ''; drawerJustOpened = true; if (!state.smConvs) loadConvs().then(() => { if (state.drawer) render(); }).catch(() => {}); render(); },   // 0.9.10 perf: no second full render when chats are already loaded
   drawerClose() { closeDrawer(); },
   drawerNewChat() { actions.smNew(); go('smarty'); },
   smEvOpen() { state.smEv = { ctx: readScreen(), busy: '', result: null, draft: '' }; render(); setTimeout(() => document.getElementById('smevq')?.focus(), 30); },
@@ -2634,7 +2634,7 @@ const actions = {
     if (!confirm('Are you sure? Everything on this device will be deleted.')) return;
     await wipeDevice(); location.hash = ''; location.reload();
   },
-  cloudDelete: () => { if (!confirm('Delete everything Prvlar stored in your Google Drive, turn off sync and sign out (Google access is revoked)? Your study data on this device is kept; AI answer reports and crash logs on this device are deleted.')) return; cloudDo(async () => { const n = await deleteCloudData(); deleteAllReports(); setCrashEnabled(false); localStorage.removeItem('prvlar-report-log'); await refreshOwner().catch(() => {}); toast(`Deleted ${n} file${n === 1 ? '' : 's'} from your Drive. Sync is off and you are signed out.`, 'ok'); }); },
+  cloudDelete: () => { if (!confirm('Delete everything Prvlar stored in your Google Drive, turn off sync and sign out (Google access is revoked)? Your study data on this device is kept; AI answer reports and crash logs on this device are deleted (reports already sent to the developer stay with the developer; ask by email to have them removed).')) return; cloudDo(async () => { const n = await deleteCloudData(); deleteAllReports(); setCrashEnabled(false); localStorage.removeItem('prvlar-report-log'); await refreshOwner().catch(() => {}); toast(`Deleted ${n} file${n === 1 ? '' : 's'} from your Drive. Sync is off and you are signed out.`, 'ok'); }); },
   cloudPass() { const v = prompt('Sync passphrase (at least 8 characters). Use the same one on every device.'); if (v == null) return; if (v.length < 8) return toast('Use at least 8 characters.', 'warn'); setPassphrase(v); render(); },
   musicPlay() { musicPlay(); }, musicPause() { musicPause(); },
   spLogin() { spotifyLogin(); },
@@ -2765,12 +2765,17 @@ const actions = {
   },
   async adjust() {
     const r = shown(); if (!r) return;
+    // 0.9.10: check every field first, then apply, so one bad field never leaves half-applied marks on screen.
+    const edits = [];
     for (const el of document.querySelectorAll('[data-adjust]')) {
       const q = r.questions.find(x => x.id === el.dataset.adjust), g = r.grades.find(x => x.id === el.dataset.adjust), n = Number(el.value);
-      if (!Number.isInteger(n) || n < 0 || n > q.marks) throw Error(`Marks must be a whole number from 0 to ${q.marks}.`);
-      if (g.awarded !== n || g.method === 'self assessment pending') { g.awarded = n; g.method = 'manual review'; }
+      if (!q || !g) continue;
+      const max = Number(q.marks) || 0;
+      if (!Number.isInteger(n) || n < 0 || n > max) { el.focus?.(); throw Error(`Marks must be a whole number from 0 to ${max}.`); }
+      edits.push([g, n]);
     }
-    r.earned = r.grades.reduce((s, g) => s + g.awarded, 0);
+    for (const [g, n] of edits) if (g.awarded !== n || g.method === 'self assessment pending') { g.awarded = n; g.method = 'manual review'; }
+    r.earned = r.grades.reduce((s, g) => s + (Number(g.awarded) || 0), 0);
     r.percent = r.total ? Math.max(0, Math.round(100 * r.earned / r.total)) : 0;
     r.provisional = r.grades.some(g => g.method === 'self assessment pending');
     await saveAttempt(r);

@@ -40,7 +40,7 @@ export function review(card, quality, now = Date.now()) {
     due = now + LEARN_AGAIN_MS;
   } else {
     reps += 1;
-    if (reps === 1) interval = q === 5 ? 4 : q === 3 ? 1 : 1;
+    if (reps === 1) interval = q === 5 ? 4 : q === 3 ? 1 : 2;             // 0.9.10: Hard 1d and Good 2d (were both 1d)
     else if (reps === 2) interval = q === 3 ? 3 : q === 5 ? 8 : 6;
     else interval = Math.max(interval + 1, Math.round(interval * ease * (q === 3 ? 0.8 : q === 5 ? 1.3 : 1)));
     interval = Math.min(interval, 3650);
@@ -51,7 +51,9 @@ export function review(card, quality, now = Date.now()) {
 
 // When each answer button would bring the card back, for labels like "Good · 6d".
 export function preview(card, now = Date.now()) {
-  return GRADES.map(g => { const c = review(card, g.q, now); return { ...g, label2: whenLabel(c.due - now) }; });
+  // 0.9.10: anything due on a later calendar day is labelled in days ("1d"), not hours ("5h" at 23:30 for 4 a.m.).
+  return GRADES.map(g => { const c = review(card, g.q, now); const days = Math.round((startOfDay(c.due) - startOfDay(now)) / DAY);
+    return { ...g, label2: days >= 1 ? whenLabel(days * DAY) : whenLabel(c.due - now) }; });
 }
 export function whenLabel(ms) {
   if (ms < 3600000) return Math.max(1, Math.round(ms / 60000)) + 'm';

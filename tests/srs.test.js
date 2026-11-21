@@ -11,10 +11,11 @@ test('a new card is due straight away and keeps its text', () => {
   assert.throws(() => newCard({ front: ' ', back: 'x' }), /front and a back/);
 });
 
-test('SM-2 intervals grow 1 → 6 → interval × ease for "good" answers', () => {
+test('SM-2 intervals grow 2 → 6 → interval × ease for "good" answers (0.9.10: Good starts at 2d, Hard at 1d)', () => {
   let c = review(card(), 4, T0);
-  assert.equal(c.reps, 1); assert.equal(c.interval, 1); assert.equal(c.ease, 2.5);
-  assert.equal(startOfDay(c.due), startOfDay(T0) + DAY);           // tomorrow (early morning), not 24 h later
+  assert.equal(c.reps, 1); assert.equal(c.interval, 2); assert.equal(c.ease, 2.5);
+  assert.equal(startOfDay(c.due), startOfDay(T0) + 2 * DAY);       // day after tomorrow (early morning), not 48 h later
+  assert.equal(review(card(), 3, T0).interval, 1);                  // Hard: tomorrow
   c = review(c, 4, c.due);
   assert.equal(c.interval, 6);
   c = review(c, 4, c.due);

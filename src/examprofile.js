@@ -108,6 +108,17 @@ function spread(pool, n) {
   return out;
 }
 
+// "A".."H" or "a".."h" -> 0..7; numbers stay numbers (0.9.10: typed or imported letter answers).
+const optionIndex = v => { const t = String(v).trim(); return /^[A-Ha-h]$/.test(t) ? t.toUpperCase().charCodeAt(0) - 65 : (t === '' ? NaN : Number(t)); };
+export function readNumber(v) {
+  let t = String(v ?? '').trim();
+  // Thousands separators, Western (1,000,000) or Indian (10,00,000) grouping, with comma, space or underscore.
+  if (/^[-+]?\d{1,3}(?:(?:[,\s_]\d{3})+|(?:[,\s_]\d{2})+[,\s_]\d{3})(?:\.\d+)?$/.test(t)) t = t.replace(/[,\s_]/g, '');
+  t = t.replace(/\s+/g, '');
+  const f = t.match(/^([-+]?\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
+  if (f) { const d = Number(f[2]); return d ? Number(f[1]) / d : NaN; }
+  return t === '' ? NaN : Number(t);
+}
 // Marks for one objective answer, following the exam's marking (negative and partial marking included).
 export function scoreQuestion(q, answer) {
   const blank = answer === undefined || answer === null || (Array.isArray(answer) ? answer.length === 0 : String(answer).trim() === '');
@@ -115,12 +126,15 @@ export function scoreQuestion(q, answer) {
   const neg = Number(q.negative) || 0;
   if (q.type === 'mcq') return Number(answer) === q.correct ? q.marks : -neg;
   if (q.type === 'numerical') {
-    const a = Number(String(answer).trim()), key = Number(q.answer), tol = Math.abs(Number(q.tolerance) || 0);
-    if (!Number.isFinite(a)) return -neg;
+    // 0.9.10: "1,000", " 2 500" and fractions like "1/2" are valid ways to write a number; an answer that still
+    // cannot be read is treated as blank (0), never as a wrong answer with negative marks.
+    const a = readNumber(answer), key = Number(q.answer), tol = Math.abs(Number(q.tolerance) || 0);
+    if (!Number.isFinite(a)) return 0;
     return Math.abs(a - key) <= tol + 1e-9 ? q.marks : -neg;
   }
   if (q.type === 'multi') {
-    const chosen = [...new Set((Array.isArray(answer) ? answer : String(answer).split(',')).map(Number))], key = new Set(q.correct);
+    const chosen = [...new Set((Array.isArray(answer) ? answer : String(answer).split(/[,\s]+/).filter(Boolean)).map(optionIndex))], key = new Set(q.correct);
+    if (chosen.some(c => !Number.isInteger(c))) return 0;            // unreadable choice: treat as blank
     const allRight = chosen.every(c => key.has(c));
     if (allRight && chosen.length === key.size) return q.marks;
     if (!allRight) return -neg;

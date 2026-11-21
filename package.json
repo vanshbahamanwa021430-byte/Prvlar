@@ -27,7 +27,8 @@
     "check:source": "node scripts/public-source.mjs /tmp/ka-public && node scripts/check-public.mjs /tmp/ka-public",
     "owner-pack": "node owner/scripts/build-pack.mjs",
     "test:owner": "node --test owner/tests/*.test.js",
-    "lint": "eslint src electron scripts proxy tests"
+    "lint": "eslint src electron scripts proxy tests",
+    "test:visual": "node scripts/glass-visual.mjs"
   },
   "dependencies": {
     "@capacitor-community/file-opener": "^7.0.1",
