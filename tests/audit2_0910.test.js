@@ -54,7 +54,7 @@ test('re-marking validates every field before changing any grade', () => {
 test('focus minutes and the test average never show NaN', () => {
   const m = read('main.js');
   assert.ok(!/reduce\(\(a, s\) => a \+ s\.minutes, 0\)/.test(m)); assert.ok(!/a \+ x\.percent/.test(m));
-  assert.match(m, /function ringSVG\(p[^)]*\) \{\n {2}p = pctOf/);
+  assert.match(m, /function ringSVG\(p[^)]*\) \{\r?\n {2}p = pctOf/);
 });
 test('no other companies’ AI product names in user-visible text (settings, onboarding, legal, attachments)', () => {
   const NAMES = /\b(Gemini|Gemma|Groq|OpenAI|ChatGPT|Claude|Anthropic|Copilot|OmniRoute|LiteRT|Llama|Mistral|DeepSeek|Perplexity)\b/;
