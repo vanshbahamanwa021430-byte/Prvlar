@@ -54,3 +54,11 @@ approves this exact version and build in Developer panel › Release approval.
 - Automated: unit + lint, browser suite, glass visual regression check, secret scan.
 - Real-device Android install: **NOT YET RUN** (needs the owner's phone).
 - Windows install: **NOT YET RUN**.
+
+## Installing on an Android phone
+
+1. Download `Prvlar-0.9.10.apk` in **Chrome** (not from Gmail or the GitHub app). The full file is 20.4 MB (SHA-256 `3669dd562fecdeff49338c0dfd0d8656147962c8efd087c86dce2a14884fda7d`). If the download looks small or is still in progress, download it again.
+2. Open it from the Files app: **Files by Google › Downloads › Prvlar-0.9.10.apk**.
+3. If Android asks, tap **Settings** and turn on **Allow from this source** for Chrome or Files, then go back and tap **Install**.
+4. If tapping the file does nothing: **Settings › Apps › Special app access › Install unknown apps**, allow Files by Google and Chrome, then try again.
+5. If an older Prvlar is already installed, this upgrades it in place and keeps your data. Only if Android says the package conflicts with an existing one, uninstall the older Prvlar first.

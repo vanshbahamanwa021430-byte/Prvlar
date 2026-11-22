@@ -43,6 +43,7 @@ import { needsWelcome, afterSignIn, afterGuest, afterSignOut } from './gate.js';
 import { getIdToken, cloudAvailable, account, syncStatus, syncPrefs, setSyncPrefs, setPassphrase, hasPassphrase, signIn, signOut, grantDrive, syncNow, deleteCloudData, startAutoSync, onSyncStatus, driveClient } from './cloud.js';
 import { registerPlugin } from '@capacitor/core';
 import { checkForUpdate, AUTO_INTERVAL, RELEASES_PAGE, UPDATE_REPO, setUpdateRepo } from './update.js';
+import { androidInstallListHTML } from './install-android.js';
 import { ownerPackController, webSecureStore, nativeSecureStore, memoryStore, isPackEnvelope, OWNER_PACK_NAME, LEGACY_OWNER_PACK_NAME } from './ownerpack.js';
 import { newCard, review, preview, whenLabel, isNew, dueQueue, deckStats, cardFromQuestion } from './srs.js';
 import { pctOf, dayKey, dayStart, addDays, lastDays, streaks, xpTotal, levelFor, BADGES, earnedBadges, errorEntries, weakTopics, daysUntil, recommend, nextPhase } from './progress.js';
@@ -1279,6 +1280,7 @@ function viewAbout() {
 <li>No accounts, no ads, no analytics or tracking.</li>
 <li>The only other connection is the update check to GitHub, which you can turn off below.</li></ul></section>
 ${updateCardHTML()}
+${androidInstallCardHTML()}
 <section class="card" aria-labelledby="ab-say"><h2 class="h2" id="ab-say">Suggestions</h2>
 ${d.whatsapp ? `<p class="dev-note">Have an idea or found a bug? Leave ${esc(d.name)} a WhatsApp message at <b>${esc(d.shown)}</b>.</p>
 <a class="btn big block wa-btn" href="https://wa.me/${d.whatsapp}?text=${msg}" target="_blank" rel="noopener">${icon('chat', 20)}Message on WhatsApp</a>` : '<p class="dev-note">Have an idea or found a bug? Send feedback through the store page where you got the app.</p>'}</section>
@@ -1298,6 +1300,11 @@ const updateNote = () => isNative() && platform() === 'android'
   : 'Opens the download page for the newest version.';
 const COMING_NEXT = 'Next update: Smarty everywhere. Your AI study assistant on every screen, aware of what you’re viewing, and able to make tests, plans, notes and flashcards for you.';
 const comingNextHTML = () => `<p class="fine coming-next">${icon('sparkles', 14)} <b>Coming next:</b> ${esc(COMING_NEXT.replace(/^Next update: /, ''))}</p>`;
+function androidInstallCardHTML() {
+  return `<section class="card" aria-labelledby="android-install-h"><h2 class="h2" id="android-install-h">${icon('phone', 20)}How to install on Android</h2>
+<p class="fine">Use these steps when you install or update Prvlar from an APK file.</p>
+${androidInstallListHTML(VERSION)}</section>`;
+}
 function updateCardHTML() {
   if (!UPDATE_REPO || platform() !== 'android') return `<section class="card"><h2 class="h2">Updates</h2><p class="muted">Prvlar ${esc(VERSION)}. ${isNative() && platform() === 'android' ? 'Updates arrive through the store where you installed the app.' : isNative() ? 'Updates arrive through the App Store.' : 'The website updates itself: reload to get the newest version.'}</p>${comingNextHTML()}</section>`;
   const u = state.update, p = updPrefs(), r = u.release;

@@ -15,6 +15,14 @@ Turn your own documents into a study map, study them section by section, and tes
 
 The JavaScript is compiled for 2019-era engines (`es2019`, Chrome 73, Safari 13) and PDF import uses pdf.js's legacy build, so older devices work. If a device's engine is too old, `public/compat.js` shows what to update instead of a blank screen.
 
+## How to install on Android
+
+1. Download the APK in **Chrome** (not from Gmail or the GitHub app). Get it from the [download page](https://vanshbahamanwa021430-byte.github.io/Prvlar/download/).
+2. Open it from the Files app: **Files by Google › Downloads › Prvlar-<version>.apk**.
+3. If Android asks, tap **Settings** and turn on **Allow from this source** for Chrome or Files, then go back and tap **Install**.
+4. If tapping the file does nothing: **Settings › Apps › Special app access › Install unknown apps**, allow Files by Google and Chrome, then try again.
+5. If an older Prvlar is already installed, this upgrades it in place and keeps your data.
+
 ## What it does
 - **Home:** import a document, or carry on where you left off, with your progress, average score and recent tests.
 - **Library:** your documents with study progress and best score. Search finds words in every document, section and note.
